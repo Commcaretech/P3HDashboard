@@ -1,0 +1,485 @@
+import { test, expect } from "@playwright/test";
+import ExcelJS from "exceljs";
+import { randomBytes } from "node:crypto";
+import { readFile, access } from "node:fs/promises";
+const password = randomBytes(24).toString("base64url");
+test.describe.configure({ mode: "serial" });
+test("critical local case-management workflows and server permissions", async ({
+  page,
+  context,
+}) => {
+  const errors: string[] = [];
+  const externalRequests: string[] = [];
+  page.on("request", (r) => {
+    if (!r.url().startsWith("http://127.0.0.1:3100/"))
+      externalRequests.push(r.url());
+  });
+  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("console", (m) => {
+    if (m.type() === "error") errors.push(m.text());
+  });
+  await page.goto("/");
+  await page.getByLabel("Your name").fill("Fake Administrator");
+  await page.getByLabel("Username", { exact: true }).fill("fake.admin");
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Create administrator" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Dashboard", exact: true }),
+  ).toBeVisible();
+  const wb = new ExcelJS.Workbook();
+  const s = wb.addWorksheet("Members");
+  s.addRow([
+    "Member ID",
+    "Date of Birth",
+    "Centre (as client)",
+    "Gender",
+    "Race",
+    "Language spoken / understood",
+    "Working status",
+    "Other Medical Conditions",
+    "Interest",
+    "Remark",
+    "Tags",
+  ]);
+  s.addRow([
+    "E2E-001",
+    25569,
+    "Fake Centre",
+    "Female",
+    "Not recorded",
+    "English, Mandarin",
+    "",
+    "CR: Dementia; ZBI = 10",
+    "Exercise;Walking",
+    "P3H Onboarding Date: 01/10/2026",
+    "Fake",
+  ]);
+  const bytes = Buffer.from(await wb.xlsx.writeBuffer());
+  await page.getByRole("link", { name: "Import Data", exact: true }).click();
+  await page.getByLabel("Excel workbook", { exact: true }).setInputFiles({
+    name: "fake.xlsx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: bytes,
+  });
+  await page.getByRole("button", { name: "Parse and preview" }).click();
+  await expect(
+    page.getByRole("button", { name: "Confirm import" }),
+  ).toBeVisible();
+  expect(
+    (await (await context.request.get("/api/data")).json()).people.length,
+  ).toBe(0);
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Confirm import" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Import saved" }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "View members", exact: true }).click();
+  await page.getByRole("link", { name: "E2E-001" }).click();
+  await expect(
+    page.getByRole("heading", { name: "E2E-001", exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "E2E-001", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Edit profile" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("Fictional Caregiver");
+  await page.getByRole("button", { name: "Save record" }).click();
+  await expect(
+    page.getByRole("heading", { name: /Fictional Caregiver/ }),
+  ).toBeVisible();
+  await page
+    .getByRole("link", { name: "Care Recipients", exact: true })
+    .click();
+  await page.getByRole("button", { name: "+ Add care recipient" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("Fictional Recipient");
+  await page
+    .getByLabel("Date of birth", { exact: true })
+    .fill(
+      `1950-${new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore", month: "2-digit", day: "2-digit" }).format(new Date()).replace("/", "-")}`,
+    );
+  await page.getByRole("tab", { name: "Languages & interests" }).click();
+  await page.getByLabel("Other spoken / understood languages").fill("Mandarin");
+  await page.getByLabel("Interests", { exact: true }).fill("Exercise, Walking");
+  await page.getByRole("tab", { name: "Health", exact: true }).click();
+  await page.getByLabel("Medical / mental health conditions").fill("Dementia");
+  await page
+    .getByRole("dialog")
+    .getByLabel("Mobility", { exact: true })
+    .selectOption("Assisted");
+  await page.getByRole("button", { name: "Save record" }).click();
+  await page
+    .getByRole("link", { name: "Fictional Recipient", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Care Relationships", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Link care recipient" }).click();
+  await page
+    .getByLabel("Member / caregiver", { exact: true })
+    .selectOption({ label: "Fictional Caregiver" });
+  await page
+    .getByLabel("Care recipient", { exact: true })
+    .selectOption({ label: "Fictional Recipient" });
+  await page.getByLabel("Relationship", { exact: true }).fill("Spouse");
+  await page.getByRole("button", { name: "Save record" }).click();
+  await expect(page.getByText("Spouse", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Programmes", exact: true }).click();
+  await page.getByRole("button", { name: "+ Add programme" }).click();
+  await page
+    .getByLabel("Programme name", { exact: true })
+    .fill("Fictional Exercise");
+  await page.getByLabel("Supported languages").fill("Mandarin");
+  await page.getByLabel("Suitable conditions").fill("Dementia");
+  await page.getByLabel("Related interests").fill("Exercise, Walking");
+  await page.getByLabel("Suitable mobility levels").fill("Assisted");
+  await page.getByLabel("Capacity (0 = unspecified)").fill("10");
+  await page.getByRole("button", { name: "Save record" }).click();
+  await expect(
+    page.getByText("Fictional Exercise", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("link", { name: "Programme Matching", exact: true })
+    .click();
+  await page
+    .getByLabel("Member / caregiver", { exact: true })
+    .selectOption({ label: "Fictional Caregiver" });
+  await page
+    .getByLabel("Linked care recipient", { exact: true })
+    .selectOption({ label: "Fictional Recipient" });
+  await page.getByRole("button", { name: "Find Suitable Programmes" }).click();
+  await expect(page.getByText("100% Match", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Care recipient conditions: Dementia (+35%)"),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Register participation" }).click();
+  await page
+    .getByRole("link", { name: "Grants & Support", exact: true })
+    .click();
+  await page.getByRole("button", { name: "+ Add grant / support" }).click();
+  await page
+    .getByLabel("Person", { exact: true })
+    .selectOption({ label: "Fictional Caregiver · Member" });
+  await page.getByLabel("Scheme name", { exact: true }).fill("HCG");
+  const now = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Singapore",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  await page.getByLabel("Next review date", { exact: true }).fill(now);
+  await page.getByRole("button", { name: "Save record" }).click();
+  await page.getByRole("link", { name: "Dashboard", exact: true }).click();
+  await expect(
+    page.getByRole("link", { name: "HCG: Grant review", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: /^Alerts/ }).click();
+  const alertRow = page
+    .getByRole("row")
+    .filter({ hasText: "HCG: Grant review" });
+  await alertRow.getByRole("button", { name: "Complete", exact: true }).click();
+  await expect(alertRow).toHaveCount(0);
+  await page.getByRole("button", { name: "Refresh Alerts" }).click();
+  await expect(
+    page.getByRole("row").filter({ hasText: "HCG: Grant review" }),
+  ).toHaveCount(0);
+  await page.getByLabel("Global search").fill("E2E-001");
+  await page.getByLabel("Global search").press("Enter");
+  await expect(
+    page.getByRole("link", { name: /Fictional Caregiver/ }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Members", exact: true }).click();
+  await page.getByLabel("Centre", { exact: true }).selectOption("Fake Centre");
+  await expect(
+    page.getByRole("link", { name: /Fictional Caregiver/ }),
+  ).toBeVisible();
+  await page.getByLabel("Search records").fill("nonexistent");
+  await expect(
+    page.getByText("No matching records.", { exact: false }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Clear Filters" }).click();
+  await page.getByRole("link", { name: "Import Data", exact: true }).click();
+  await page.getByLabel("Excel workbook", { exact: true }).setInputFiles({
+    name: "duplicate.xlsx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: bytes,
+  });
+  await page.getByRole("button", { name: "Parse and preview" }).click();
+  await expect(page.getByLabel("Action for row 2")).toHaveValue("Skip");
+  await expect(
+    page.getByText("Existing Member ID — compare and choose update or skip"),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Review / correct" }).click();
+  await page.getByRole("tab", { name: "Comparison", exact: true }).click();
+  await expect(page.getByLabel("Existing values (reference only)")).toHaveValue(
+    /Fictional Caregiver/,
+  );
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Add staff account" }).click();
+  await page.getByLabel("Staff name").fill("Fake Reader");
+  await page.getByLabel("Username", { exact: true }).fill("fake.reader");
+  await page
+    .getByLabel("Initial password (at least 12 characters)")
+    .fill(password);
+  await page.getByLabel("Role", { exact: true }).selectOption("Read Only");
+  await page.getByRole("button", { name: "Save record" }).click();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.getByLabel("Username", { exact: true }).fill("fake.reader");
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Dashboard", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Members", exact: true }).click();
+  await expect(page.getByRole("button", { name: "+ Add member" })).toHaveCount(
+    0,
+  );
+  const denied = await context.request.post("/api/action", {
+    headers: { Origin: "http://127.0.0.1:3100" },
+    data: {
+      action: "person",
+      data: { kind: "Member", memberId: "NOT-ALLOWED" },
+    },
+  });
+  expect(denied.ok()).toBe(false);
+  const before = (await (await context.request.get("/api/data")).json()).people
+    .length;
+  expect(before).toBe(2);
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await expect(
+    page.getByRole("link", { name: /Fictional Caregiver/ }),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
+  expect(externalRequests).toEqual([]);
+});
+test("navigation, reports, invalid forms, confirmations, duplicate updates and responsive layouts", async ({
+  page,
+  context,
+}) => {
+  const origin = { Origin: "http://127.0.0.1:3100" };
+  expect(
+    (
+      await context.request.post("/api/auth", {
+        headers: origin,
+        data: { action: "login", username: "fake.admin", password },
+      })
+    ).ok(),
+  ).toBe(true);
+  for (const [path, title] of [
+    ["dashboard", "Dashboard"],
+    ["members", "Members"],
+    ["care-recipients", "Care Recipients"],
+    ["programmes", "Programmes"],
+    ["matching", "Programme Matching"],
+    ["grants", "Grants & Support"],
+    ["alerts", "Alerts"],
+    ["import", "Import Data"],
+    ["reports", "Reports"],
+    ["audit", "Audit Log"],
+    ["settings", "Settings"],
+  ]) {
+    await page.goto("/" + path);
+    await expect(
+      page.getByRole("heading", { name: title, exact: true }),
+    ).toBeVisible();
+  }
+  await page.goto("/reports");
+  for (const value of [
+    "caseload",
+    "conditions",
+    "languages",
+    "member-interests",
+    "recipient-interests",
+    "grant-status",
+    "birthdays",
+    "follow-ups",
+    "participation",
+  ]) {
+    await page.getByLabel("Report", { exact: true }).selectOption(value);
+    await expect(page.getByRole("table")).toBeVisible();
+  }
+  await page.goto("/members");
+  await page.getByRole("button", { name: "+ Add member" }).click();
+  await page.getByRole("button", { name: "Save record" }).click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
+    "Member ID",
+  );
+  await page.getByLabel("Member ID", { exact: true }).fill("E2E-002");
+  await page
+    .getByLabel("Name", { exact: true })
+    .fill("Second Fictional Caregiver");
+  await page.getByRole("button", { name: "Save record" }).click();
+  await expect(
+    page.getByRole("link", { name: /Second Fictional Caregiver/ }),
+  ).toBeVisible();
+  const second = page.getByRole("row").filter({ hasText: "E2E-002" });
+  page.once("dialog", (d) => d.accept());
+  await second.getByRole("button", { name: "Archive", exact: true }).click();
+  await expect(second).toHaveCount(0);
+  await page.getByLabel("Status", { exact: true }).selectOption("Archived");
+  await second.getByRole("button", { name: "Edit", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByLabel("Status", { exact: true })
+    .selectOption("Active");
+  await page.getByRole("button", { name: "Save record" }).click();
+  await page.getByRole("button", { name: "Clear Filters" }).click();
+  await expect(
+    page.getByRole("row").filter({ hasText: "E2E-002" }),
+  ).toBeVisible();
+  await page.goto("/grants");
+  await page
+    .getByRole("row")
+    .filter({ hasText: "HCG" })
+    .getByRole("button", { name: "Edit", exact: true })
+    .click();
+  await page.getByLabel("Amount (SGD)").fill("100");
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Save record" }).click();
+  await expect(page.getByText("S$100.00", { exact: true })).toBeVisible();
+  await page.goto("/alerts");
+  await page.getByRole("button", { name: "+ Create reminder" }).click();
+  await page.getByLabel("Title", { exact: true }).fill("Fictional case review");
+  await page.getByLabel("Due date", { exact: true }).fill(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Singapore",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date()),
+  );
+  await page.getByRole("button", { name: "Save record" }).click();
+  const manual = page
+    .getByRole("row")
+    .filter({ hasText: "Fictional case review" });
+  await manual.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await page.getByLabel("Status", { exact: true }).selectOption("Dismissed");
+  await manual.getByRole("button", { name: "Reopen", exact: true }).click();
+  await page.getByLabel("Status", { exact: true }).selectOption("Pending");
+  await expect(manual).toBeVisible();
+  const preview = await context.request.post("/api/import", {
+    headers: origin,
+    data: {
+      action: "preview",
+      filename: "fake-update.xlsx",
+      mapping: {
+        "Member ID": "Member ID",
+        "Centre (as client)": "Centre (as client)",
+      },
+      rawRows: [
+        {
+          "Member ID": "E2E-001",
+          "Centre (as client)": "Updated Fake Centre",
+          "Extra original field": "Preserve me",
+        },
+      ],
+    },
+  });
+  const { rows } = await preview.json();
+  expect(rows[0].action).toBe("Skip");
+  expect(rows[0].raw["Extra original field"]).toBe("Preserve me");
+  rows[0].action = "Update existing";
+  const committed = await context.request.post("/api/import", {
+    headers: origin,
+    data: { action: "commit", filename: "fake-update.xlsx", rows },
+  });
+  expect(committed.ok()).toBe(true);
+  expect((await committed.json()).updated).toBe(1);
+  const snapshot = await (await context.request.get("/api/data")).json();
+  const changed = snapshot.people.find(
+    (p: { memberId: string }) => p.memberId === "E2E-001",
+  );
+  expect(changed.name).toBe("Fictional Caregiver");
+  expect(changed.centre).toBe("Updated Fake Centre");
+  expect(changed.rawImport["Extra original field"]).toBe("Preserve me");
+  const rollback = await context.request.post("/api/import", {
+    headers: origin,
+    data: {
+      action: "commit",
+      filename: "rollback.xlsx",
+      rows: [
+        { rowNumber: 2, raw: {}, memberId: "ROLLBACK-API", action: "Import" },
+        { rowNumber: 3, raw: {}, memberId: "E2E-001", action: "Import" },
+      ],
+    },
+  });
+  expect(rollback.ok()).toBe(false);
+  expect(
+    (await (await context.request.get("/api/data")).json()).people.some(
+      (p: { memberId: string }) => p.memberId === "ROLLBACK-API",
+    ),
+  ).toBe(false);
+  await page.goto("/dashboard");
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.screenshot({
+    path: "test-results/dashboard-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await expect(
+    page.getByRole("heading", { name: "Dashboard", exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: "test-results/dashboard-tablet.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Toggle navigation" }).click();
+  await expect(
+    page.getByRole("link", { name: "Members", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Members", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Members", exact: true }),
+  ).toBeVisible();
+});
+test("provided sample workbook parses, commits and detects reimport locally", async ({
+  request,
+}) => {
+  const path =
+    process.env.SAMPLE_WORKBOOK ??
+    "C:/Users/CHANYULE/Downloads/Members (cth.user) (14).xlsx";
+  await access(path);
+  const origin = { Origin: "http://127.0.0.1:3100" };
+  await request.post("/api/auth", {
+    headers: origin,
+    data: { action: "login", username: "fake.admin", password },
+  });
+  const upload = await request.post("/api/import", {
+    headers: origin,
+    multipart: {
+      file: {
+        name: "sample.xlsx",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        buffer: await readFile(path),
+      },
+    },
+  });
+  expect(upload.ok()).toBe(true);
+  const book = await upload.json();
+  const mapping = Object.fromEntries(book.headers.map((h: string) => [h, h]));
+  const preview = await request.post("/api/import", {
+    headers: origin,
+    data: { ...book, mapping, action: "preview" },
+  });
+  expect(preview.ok()).toBe(true);
+  const { rows } = await preview.json();
+  expect(rows.length).toBe(1);
+  expect(rows[0].errors.length).toBe(0);
+  expect(rows[0].recipientConditions.length).toBeGreaterThan(0);
+  const commit = await request.post("/api/import", {
+    headers: origin,
+    data: { action: "commit", filename: "sample.xlsx", rows },
+  });
+  expect(commit.ok()).toBe(true);
+  expect((await commit.json()).created).toBe(1);
+  const repeated = await request.post("/api/import", {
+    headers: origin,
+    data: { ...book, mapping, action: "preview" },
+  });
+  expect((await repeated.json()).rows[0].action).toBe("Skip");
+});
