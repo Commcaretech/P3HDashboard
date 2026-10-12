@@ -368,6 +368,29 @@ test("navigation, reports, invalid forms, confirmations, duplicate updates and r
     .filter({ hasText: "HCG" })
     .getByRole("button", { name: "Edit", exact: true })
     .click();
+  const originalViewport = page.viewportSize()!;
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 1024, height: 768 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    const bounds = await dialog.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(
+      Math.abs(bounds!.x + bounds!.width / 2 - viewport.width / 2),
+    ).toBeLessThan(2);
+    expect(
+      Math.abs(bounds!.y + bounds!.height / 2 - viewport.height / 2),
+    ).toBeLessThan(2);
+    expect(bounds!.height).toBeLessThanOrEqual(viewport.height - 32);
+    await page.screenshot({
+      path: `test-results/centered-grant-${viewport.width}.png`,
+    });
+  }
+  await page.setViewportSize(originalViewport);
   await page.getByLabel("Amount (SGD)").fill("100");
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "Save record" }).click();

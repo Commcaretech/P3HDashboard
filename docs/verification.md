@@ -64,3 +64,9 @@ The operational database was backed up before migration and remains preserved. S
 Birthday alerts now use one stable person/birthday key within the next 30 days, show the exact current countdown and have the birthday itself as their due date. Refresh updates that reminder instead of creating separate threshold reminders. Existing threshold records are consolidated by retaining the closest reminder (including its snooze, notes and completion status) and dismissing the other pending records; historical records are retained.
 
 31 unit/database tests, TypeScript, ESLint, the production build and all nine Chromium workflows passed. Tests cover 30/7/2/1/0-day countdowns, stable keys, legacy duplicate consolidation, snooze/completion preservation, repeated refresh and one visible birthday row after browser refresh. The updated source archive must be redeployed before this behaviour is available on the hosted website. No database schema migration is required for this change.
+
+## Centred pop-ups - 12 October 2026
+
+The shared native dialog explicitly uses fixed viewport positioning, zero inset and automatic margins, overriding the CSS reset's zero-margin positioning. Its height is bounded by the dynamic viewport and content continues to scroll internally. All shared pop-ups use this style.
+
+TypeScript, ESLint, 31 unit/database tests, the production build and nine Chromium workflows passed. The grant editor's horizontal and vertical centres were checked within two pixels at 1440x900, 1024x768 and 390x844, with its bounds inside the viewport. Desktop and mobile screenshots using fictional records were visually inspected. The hosted website requires redeployment of the updated source.

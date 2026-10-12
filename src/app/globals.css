@@ -510,11 +510,15 @@ li {
   margin: 3px 0;
 }
 dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
   border: 1px solid var(--line);
   border-radius: 10px;
   max-width: 900px;
   width: calc(100% - 32px);
   max-height: 90vh;
+  max-height: min(90dvh, calc(100dvh - 32px));
   overflow: auto;
   padding: 25px;
   color: var(--ink);
