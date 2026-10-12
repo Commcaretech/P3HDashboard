@@ -18,8 +18,76 @@ const { db, personInclude } = await import("../src/lib/db");
 const { savePerson, saveProgramme } = await import("../src/lib/records");
 const { refreshAlerts } = await import("../src/lib/alerts");
 const { today } = await import("../src/lib/domain");
+const { extractMemberSupport } = await import("../src/lib/support-extraction");
 after(async () => {
   await db.$disconnect();
+});
+
+test("note extraction persists support, preserves notes, audits and skips existing schemes", async () => {
+  const user = await db.user.create({
+    data: {
+      username: "support-test",
+      name: "Fake Reviewer",
+      passwordHash: "test-only",
+    },
+  });
+  const remarks =
+    "Receiving HCG, SSS, PioneerDAS, Home Therapy\nReceived South West $250 and $1000\nCompleted EASE";
+  const member = await db.person.create({
+    data: { kind: "Member", memberId: "SUPPORT-TEST", remarks },
+  });
+  const counts = await db.$transaction((tx) =>
+    extractMemberSupport(tx, user.id, member.id),
+  );
+  assert.deepEqual(counts, { created: 6, skipped: 0 });
+  const grant = await db.grantApplication.findFirstOrThrow({
+    where: { personId: member.id, scheme: { name: "South West" } },
+  });
+  assert.equal(grant.amount, null);
+  assert.equal(grant.approvalDate, null);
+  assert.match(grant.notes, /\$250 and \$1000/);
+  assert.equal(
+    (await db.person.findUniqueOrThrow({ where: { id: member.id } })).remarks,
+    remarks,
+  );
+  assert.equal(
+    await db.auditLog.count({
+      where: { action: "Support extracted from notes" },
+    }),
+    6,
+  );
+  await db.grantApplication.update({
+    where: { id: grant.id },
+    data: { status: "Approved", notes: "Staff verified" },
+  });
+  assert.deepEqual(
+    await db.$transaction((tx) => extractMemberSupport(tx, user.id, member.id)),
+    { created: 0, skipped: 6 },
+  );
+  assert.equal(
+    (await db.grantApplication.findUniqueOrThrow({ where: { id: grant.id } }))
+      .notes,
+    "Staff verified",
+  );
+  await assert.rejects(
+    db.$transaction(async (tx) => {
+      const p = await tx.person.create({
+        data: { kind: "Member", memberId: "SUPPORT-ROLLBACK", remarks },
+      });
+      await extractMemberSupport(tx, user.id, p.id);
+      throw new Error("Rollback test");
+    }),
+  );
+  assert.equal(
+    await db.person.count({ where: { memberId: "SUPPORT-ROLLBACK" } }),
+    0,
+  );
+  // Keep the unrelated existing integration scenario's count assertions isolated.
+  await db.auditLog.deleteMany({ where: { userId: user.id } });
+  await db.grantApplication.deleteMany({ where: { personId: member.id } });
+  await db.supportScheme.deleteMany({ where: { applications: { none: {} } } });
+  await db.person.delete({ where: { id: member.id } });
+  await db.user.delete({ where: { id: user.id } });
 });
 test("relational CRUD, persistence, rollback, audit and idempotent alerts", async () => {
   const user = await db.user.create({

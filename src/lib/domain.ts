@@ -205,6 +205,10 @@ export const grantStatuses = [
   "Rejected",
   "Expired",
   "Renewal Required",
+  "Receiving",
+  "Received",
+  "Completed",
+  "Recorded in notes",
 ] as const;
 export const grantSchema = z.object({
   personId: z.string().min(1),

@@ -1,5 +1,7 @@
 import ExcelJS from "exceljs";
 import { sourceNumbers } from "./xlsx-source";
+import { compatibleWorkbook } from "./xlsx-compatibility";
+import { supportFromNotes } from "./support-notes";
 import {
   categories,
   medical,
@@ -55,6 +57,11 @@ export function parseRow(
     warnings.push("Confirm the assessment owner before assigning ZBI");
   if (note && !Object.keys(suggested).length)
     warnings.push("Remarks retained; no reliable structured fields found");
+  const support = supportFromNotes(note);
+  if (support.length)
+    warnings.push(
+      `Support to extract on confirmation: ${support.map((s) => `${s.scheme} (${s.status})`).join(", ")}. Dates and amounts require review.`,
+    );
   const onboarding = parseDate(suggested["p3h onboarding date"]);
   if (suggested["p3h onboarding date"] && !onboarding)
     warnings.push("Onboarding date needs review");
@@ -136,7 +143,10 @@ export async function readWorkbook(bytes: Buffer) {
   let numericSource: Map<string, number>;
   try {
     numericSource = await sourceNumbers(bytes);
-    await wb.xlsx.load(bytes as unknown as Parameters<typeof wb.xlsx.load>[0]);
+    const compatible = await compatibleWorkbook(bytes);
+    await wb.xlsx.load(
+      compatible as unknown as Parameters<typeof wb.xlsx.load>[0],
+    );
   } catch {
     throw new Error(
       "Unable to read this workbook. Select a valid, unencrypted .xlsx file.",

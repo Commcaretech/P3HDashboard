@@ -370,7 +370,12 @@ export default function DashboardApp({
                 <Matching d={data} write={write} action={safeAction} />
               )}
               {section === "grants" && (
-                <Grants d={data} write={write} onEdit={grantEditor} />
+                <Grants
+                  d={data}
+                  write={write}
+                  onEdit={grantEditor}
+                  onSaved={load}
+                />
               )}
               {section === "alerts" && (
                 <Alerts

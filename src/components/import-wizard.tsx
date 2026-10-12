@@ -3,6 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import type { ImportRow } from "@/lib/importer";
 import { columns } from "@/lib/import-fields";
+import { supportFromNotes } from "@/lib/support-notes";
 import { Table, Editor, Badge } from "./ui";
 type ReviewRow = ImportRow & {
   confirmedRecipient?: boolean;
@@ -211,6 +212,11 @@ export default function ImportWizard({
                   <br />
                   Suggested CR:{" "}
                   {r.recipientConditions || r.suggested.cr || "None"}
+                  <br />
+                  Support:{" "}
+                  {supportFromNotes(r.remarks)
+                    .map((s) => `${s.scheme} (${s.status})`)
+                    .join(", ") || "None identified"}
                 </span>,
                 <span key="issues">
                   {[...r.errors, ...r.warnings].map((s, i) => (
@@ -243,6 +249,12 @@ export default function ImportWizard({
               ],
             }))}
           />
+          <p>
+            Confirming import also adds recognised Receiving, Received and
+            Completed support from member remarks to Grants &amp; Support.
+            Existing schemes are skipped; original text is retained and dates
+            and amounts require staff review.
+          </p>
           <div className="actions">
             <button
               disabled={busy || !rows.some((r) => r.action !== "Skip")}

@@ -483,3 +483,137 @@ test("provided sample workbook parses, commits and detects reimport locally", as
   });
   expect((await repeated.json()).rows[0].action).toBe("Skip");
 });
+
+test("review member-note extraction, duplicate prevention, stale notes and server permissions", async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: "http://127.0.0.1:3100" };
+  const login = await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "fake.admin", password },
+  });
+  expect(login.ok()).toBe(true);
+  const remarks =
+    "Receiving HCG, SSS, PioneerDAS, Home Therapy\nReceived South West $250 and $1000\nCompleted EASE";
+  const created = await context.request.post("/api/action", {
+    headers,
+    data: {
+      action: "person",
+      data: {
+        kind: "Member",
+        memberId: "NOTE-EXTRACTION-FAKE",
+        name: "Fictional Support Member",
+        remarks,
+      },
+    },
+  });
+  expect(created.ok()).toBe(true);
+  const person = (await created.json()).result;
+  await page.goto("/grants");
+  await page
+    .getByRole("button", { name: "Extract from member notes", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Review support found in member notes" }),
+  ).toBeVisible();
+  const snapshot = await (await context.request.get("/api/data")).json();
+  expect(
+    snapshot.grants.filter(
+      (g: { personId: string }) => g.personId === person.id,
+    ),
+  ).toHaveLength(0);
+  for (const scheme of [
+    "HCG",
+    "SSS",
+    "PioneerDAS",
+    "Home Therapy",
+    "South West",
+    "EASE",
+  ])
+    await expect(
+      page.getByLabel(`Extract ${scheme} for Fictional Support Member`, {
+        exact: true,
+      }),
+    ).toBeChecked();
+  await page
+    .getByRole("button", { name: "Confirm extraction", exact: true })
+    .click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "support records created" }),
+  ).toBeVisible();
+  const data = await (await context.request.get("/api/data")).json();
+  const support = data.grants.filter(
+    (g: { personId: string }) => g.personId === person.id,
+  );
+  expect(support).toHaveLength(6);
+  expect(
+    data.people.find((p: { id: string }) => p.id === person.id).remarks,
+  ).toBe(remarks);
+  await page
+    .getByRole("button", { name: "Extract from member notes", exact: true })
+    .click();
+  await expect(
+    page.getByLabel("Extract HCG for Fictional Support Member", {
+      exact: true,
+    }),
+  ).toBeDisabled();
+  const duplicate = await context.request.post("/api/support-extraction", {
+    headers,
+    data: {
+      action: "commit",
+      selections: [
+        { personId: person.id, version: person.updatedAt, scheme: "HCG" },
+      ],
+    },
+  });
+  expect(await duplicate.json()).toEqual({ created: 0, skipped: 1 });
+  const stale = await context.request.post("/api/support-extraction", {
+    headers,
+    data: {
+      action: "commit",
+      selections: [{ personId: person.id, version: "stale", scheme: "SSS" }],
+    },
+  });
+  expect(stale.status()).toBe(400);
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "fake.reader", password },
+  });
+  for (const action of ["preview", "commit"]) {
+    const denied = await context.request.post("/api/support-extraction", {
+      headers,
+      data: { action },
+    });
+    expect(denied.status()).toBe(403);
+  }
+});
+
+test("synthetic namespace-prefixed workbook uploads and previews all 18 rows", async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: "http://127.0.0.1:3100" };
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "fake.admin", password },
+  });
+  const path =
+    process.env.SYNTHETIC_WORKBOOK ??
+    "C:/Users/CHANYULE/Downloads/P3H_Synthetic_Test_Data.xlsx";
+  const original = await readFile(path);
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("console", (m) => {
+    if (m.type() === "error") errors.push(m.text());
+  });
+  await page.goto("/import");
+  await page.getByLabel("Excel workbook", { exact: true }).setInputFiles(path);
+  await page.getByRole("button", { name: "Parse and preview" }).click();
+  await expect(
+    page.getByLabel("Action for row 19", { exact: true }),
+  ).toBeVisible();
+  expect(await page.getByLabel(/^Action for row /).count()).toBe(18);
+  expect(await readFile(path)).toEqual(original);
+  expect(errors).toEqual([]);
+});

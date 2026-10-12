@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { extractMemberSupport } from "@/lib/support-extraction";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/auth";
@@ -150,6 +151,7 @@ export async function POST(req: NextRequest) {
               r.raw as Prisma.InputJsonValue,
               r.existing?.updatedAt,
             );
+            await extractMemberSupport(tx, user.id, p.id);
             if (r.confirmedRecipient) {
               if (!r.recipientName?.trim())
                 throw new Error(
@@ -194,7 +196,7 @@ export async function POST(req: NextRequest) {
         );
         return batch;
       },
-      { timeout: 120000 },
+      { timeout: 120000, isolationLevel: "Serializable" },
     );
     return NextResponse.json({ batchId: batch.id, created, updated, skipped });
   } catch (e) {

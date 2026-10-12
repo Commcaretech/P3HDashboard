@@ -2,14 +2,17 @@
 import { Data, Grant, label, day } from "@/lib/types";
 import { Table, Badge, PersonLink } from "./ui";
 import { useFilters, FilterBar } from "./common";
+import SupportExtraction from "./support-extraction";
 export default function Grants({
   d,
   write,
   onEdit,
+  onSaved,
 }: {
   d: Data;
   write: boolean;
   onEdit: (g?: Grant) => void;
+  onSaved: () => Promise<void>;
 }) {
   const [f, setF] = useFilters();
   const rows = d.grants.filter(
@@ -33,6 +36,7 @@ export default function Grants({
           <button onClick={() => onEdit()}>+ Add grant / support</button>
         </div>
       )}
+      {write && <SupportExtraction onSaved={onSaved} />}
       <FilterBar
         search={f.q ?? ""}
         values={f}
