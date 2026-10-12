@@ -124,8 +124,8 @@ export default function Reports({ d }: { d: Data }) {
           </select>
         </label>
         <p className="muted">
-          Reports use the local database. Category counts may include a person
-          in more than one group.
+          Reports use the application database. Category counts may include a
+          person in more than one group.
         </p>
       </section>
       <Table headers={headers} rows={records} />

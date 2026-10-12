@@ -16,7 +16,12 @@
     "db:migrate": "node scripts/ensure-db.mjs && prisma migrate deploy",
     "db:seed": "tsx scripts/seed.ts",
     "backup": "node scripts/backup.mjs",
-    "test:persistence": "tsx --test tests/persistence/*.test.ts"
+    "test:persistence": "tsx --test tests/persistence/*.test.ts",
+    "cloud:generate": "prisma generate --schema prisma/cloud/schema.prisma",
+    "cloud:validate": "prisma validate --schema prisma/cloud/schema.prisma",
+    "cloud:migrate": "prisma migrate deploy --schema prisma/cloud/schema.prisma",
+    "cloud:build": "npm run cloud:generate && npm run build",
+    "cloud:start": "npm run cloud:migrate && node scripts/cloud-start.mjs"
   },
   "repository": {
     "type": "git",

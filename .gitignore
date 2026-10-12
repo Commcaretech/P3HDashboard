@@ -7,3 +7,4 @@ backups/
 test-results/
 playwright-report/
 *.tsbuildinfo
+artifacts/

@@ -70,6 +70,8 @@ export default function DashboardApp({
   const [auth, setAuth] = useState<{
       user: User | null;
       setup: boolean;
+      setupRequiresToken?: boolean;
+      hosted?: boolean;
     } | null>(null),
     [data, setData] = useState<Data | null>(null),
     [error, setError] = useState(""),
@@ -99,7 +101,7 @@ export default function DashboardApp({
       })
       .catch(() =>
         setError(
-          "Cannot connect to the local database. Check the setup instructions.",
+          "Cannot connect to the database. Check the setup instructions.",
         ),
       );
     return () => {
@@ -131,13 +133,15 @@ export default function DashboardApp({
   if (!auth)
     return (
       <main className="login" role="status">
-        {error || "Connecting to local P3H…"}
+        {error || "Connecting to P3H…"}
       </main>
     );
   if (!auth.user)
     return (
       <Login
         setup={auth.setup}
+        setupRequiresToken={auth.setupRequiresToken}
+        hosted={auth.hosted}
         onDone={async () => {
           setAuth(await request("/api/auth"));
           await load();
@@ -234,7 +238,8 @@ export default function DashboardApp({
         <div className="local-note">
           <ShieldCheck size={18} />
           <div>
-            Local data storage<small>Organisation-controlled device</small>
+            {auth.hosted ? "Hosted database" : "Local data storage"}
+            <small>Restricted staff access</small>
           </div>
         </div>
       </aside>
@@ -318,7 +323,7 @@ export default function DashboardApp({
               Your role does not permit this page.
             </section>
           ) : !data ? (
-            <p role="status">Loading local records…</p>
+            <p role="status">Loading records…</p>
           ) : (
             <>
               {section === "dashboard" && <Overview d={data} />}
@@ -413,16 +418,23 @@ export default function DashboardApp({
                       ],
                     }))}
                   />
-                  <h2>Local data and backups</h2>
+                  <h2>Data and backups</h2>
                   <p>
-                    The database is stored in <code>data/p3h.db</code>. Close
-                    the application before running <code>npm run backup</code>.
+                    {auth.hosted ? (
+                      "Records are stored in hosted PostgreSQL. Follow the deployment guide for database exports and restore checks. The local SQLite backup command does not apply."
+                    ) : (
+                      <>
+                        The database is stored in <code>data/p3h.db</code>. Use{" "}
+                        <code>npm run backup</code> to create a verified local
+                        backup.
+                      </>
+                    )}
                     Backups contain confidential data and must receive the same
                     access controls as the database.
                   </p>
                   <p>
-                    Enable operating-system disk encryption. Follow the README
-                    for controlled local-network deployment.
+                    Follow the README for hosting, access controls and backup
+                    instructions.
                   </p>
                 </section>
               )}

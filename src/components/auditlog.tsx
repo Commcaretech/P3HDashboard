@@ -15,8 +15,8 @@ export default function AuditLog({ d }: { d: Data }) {
   return (
     <>
       <p>
-        Latest 500 actions. Original values are retained locally for authorised
-        review.
+        Latest 500 actions. Original values are retained in the database for
+        authorised review.
       </p>
       <FilterBar search={f.q ?? ""} values={f} onChange={setF} options={[]} />
       <Table

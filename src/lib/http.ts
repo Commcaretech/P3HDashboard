@@ -5,6 +5,7 @@ export function checkOrigin(req: NextRequest) {
   const origin = req.headers.get("origin");
   const expected =
     process.env.APP_ORIGIN ??
+    process.env.RENDER_EXTERNAL_URL ??
     `${req.nextUrl.protocol}//${req.headers.get("host")}`;
   if (!origin || origin !== expected)
     throw new Error("Request origin is not permitted.");

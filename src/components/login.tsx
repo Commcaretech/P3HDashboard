@@ -3,9 +3,13 @@ import { useState } from "react";
 import { request } from "./common";
 export default function Login({
   setup,
+  setupRequiresToken = false,
+  hosted = false,
   onDone,
 }: {
   setup: boolean;
+  setupRequiresToken?: boolean;
+  hosted?: boolean;
   onDone: () => Promise<void>;
 }) {
   const [error, setError] = useState(""),
@@ -13,10 +17,10 @@ export default function Login({
   return (
     <main className="login">
       <div className="login-brand">P3H</div>
-      <h1>{setup ? "Set up your local workspace" : "Welcome back"}</h1>
+      <h1>{setup ? "Set up your workspace" : "Welcome back"}</h1>
       <p>
         {setup
-          ? "Create the first administrator account on this computer."
+          ? "Create the first administrator account."
           : "Sign in to the internal case-management system."}
       </p>
       <form
@@ -31,6 +35,7 @@ export default function Login({
               username: fd.get("username"),
               password: fd.get("password"),
               name: fd.get("name") ?? "",
+              setupToken: fd.get("setupToken") ?? "",
             });
             await onDone();
           } catch (e) {
@@ -44,6 +49,17 @@ export default function Login({
           <label>
             Your name
             <input name="name" required autoComplete="name" />
+          </label>
+        )}
+        {setup && setupRequiresToken && (
+          <label>
+            Setup token
+            <input
+              name="setupToken"
+              type="password"
+              required
+              autoComplete="off"
+            />
           </label>
         )}
         <label>
@@ -69,7 +85,9 @@ export default function Login({
           {busy ? "Please wait…" : setup ? "Create administrator" : "Sign in"}
         </button>
       </form>
-      <p className="muted">Local storage · No cloud services</p>
+      <p className="muted">
+        {hosted ? "Hosted staff workspace" : "Local staff workspace"}
+      </p>
     </main>
   );
 }

@@ -1,0 +1,260 @@
+generator client {
+ provider = "prisma-client-js"
+}
+datasource db {
+ provider = "postgresql"
+ url = env("DATABASE_URL")
+}
+model User {
+ id String @id @default(cuid())
+ username String @unique
+ name String
+ passwordHash String
+ role String @default("Staff")
+ active Boolean @default(true)
+ sessions Session[]
+ audits AuditLog[]
+ alerts Alert[]
+ grants GrantApplication[]
+}
+model Session {
+ id String @id
+ userId String
+ user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+ expiresAt DateTime
+ @@index([expiresAt])
+}
+model Person {
+ id String @id @default(cuid())
+ kind String
+ memberId String? @unique
+ name String @default("")
+ alias String @default("")
+ dob DateTime?
+ centre String @default("")
+ gender String @default("")
+ race String @default("")
+ workingStatus String @default("")
+ preferredLanguage String @default("")
+ onboardingDate DateTime?
+ status String @default("Active")
+ mobility String @default("")
+ hearing String @default("")
+ eyesight String @default("")
+ dietaryPreference String @default("")
+ foodAllergies String @default("")
+ education String @default("")
+ primaryCondition String @default("")
+ tags String @default("")
+ remarks String @default("")
+ rawImport Json?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ languages PersonLanguage[]
+ interests PersonInterest[]
+ conditions PersonCondition[]
+ assessments Assessment[]
+ caregiverLinks CareRelationship[] @relation("caregiver")
+ recipientLinks CareRelationship[] @relation("recipient")
+ grants GrantApplication[]
+ alerts Alert[]
+ participations Participation[]
+ @@index([kind,status])
+ @@index([name])
+ @@index([centre])
+}
+model CareRelationship {
+ id String @id @default(cuid())
+ memberId String
+ recipientId String
+ relationship String
+ member Person @relation("caregiver",fields:[memberId],references:[id])
+ recipient Person @relation("recipient",fields:[recipientId],references:[id])
+ @@unique([memberId,recipientId])
+ @@index([recipientId])
+}
+model Language {
+ id String @id @default(cuid())
+ name String @unique
+ people PersonLanguage[]
+ programmes ProgrammeLanguage[]
+}
+model Interest {
+ id String @id @default(cuid())
+ name String @unique
+ people PersonInterest[]
+ programmes ProgrammeInterest[]
+}
+model MedicalCondition {
+ id String @id @default(cuid())
+ name String @unique
+ people PersonCondition[]
+ programmes ProgrammeCondition[]
+}
+model PersonLanguage {
+ personId String
+ languageId String
+ mode String @default("Spoken / understood")
+ person Person @relation(fields:[personId],references:[id],onDelete:Cascade)
+ language Language @relation(fields:[languageId],references:[id])
+ @@id([personId,languageId])
+ @@index([languageId])
+}
+model PersonInterest {
+ personId String
+ interestId String
+ person Person @relation(fields:[personId],references:[id],onDelete:Cascade)
+ interest Interest @relation(fields:[interestId],references:[id])
+ @@id([personId,interestId])
+ @@index([interestId])
+}
+model PersonCondition {
+ personId String
+ conditionId String
+ notes String @default("")
+ person Person @relation(fields:[personId],references:[id],onDelete:Cascade)
+ condition MedicalCondition @relation(fields:[conditionId],references:[id])
+ @@id([personId,conditionId])
+ @@index([conditionId])
+}
+model Assessment {
+ id String @id @default(cuid())
+ personId String
+ person Person @relation(fields:[personId],references:[id])
+ type String
+ value Float
+ assessedAt DateTime?
+ recordedAt DateTime @default(now())
+ notes String @default("")
+ @@index([personId])
+}
+model Programme {
+ id String @id @default(cuid())
+ name String
+ description String @default("")
+ category String @default("")
+ mobility String @default("")
+ venue String @default("")
+ centre String @default("")
+ day String @default("")
+ startTime String @default("")
+ endTime String @default("")
+ frequency String @default("")
+ capacity Int @default(0)
+ registrationStatus String @default("Open")
+ status String @default("Active")
+ notes String @default("")
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ languages ProgrammeLanguage[]
+ interests ProgrammeInterest[]
+ conditions ProgrammeCondition[]
+ participations Participation[]
+ @@index([status,centre])
+}
+model ProgrammeLanguage {
+ programmeId String
+ languageId String
+ programme Programme @relation(fields:[programmeId],references:[id],onDelete:Cascade)
+ language Language @relation(fields:[languageId],references:[id])
+ @@id([programmeId,languageId])
+}
+model ProgrammeInterest {
+ programmeId String
+ interestId String
+ programme Programme @relation(fields:[programmeId],references:[id],onDelete:Cascade)
+ interest Interest @relation(fields:[interestId],references:[id])
+ @@id([programmeId,interestId])
+}
+model ProgrammeCondition {
+ programmeId String
+ conditionId String
+ programme Programme @relation(fields:[programmeId],references:[id],onDelete:Cascade)
+ condition MedicalCondition @relation(fields:[conditionId],references:[id])
+ @@id([programmeId,conditionId])
+}
+model Participation {
+ id String @id @default(cuid())
+ personId String
+ programmeId String
+ person Person @relation(fields:[personId],references:[id])
+ programme Programme @relation(fields:[programmeId],references:[id])
+ status String @default("Registered")
+ @@unique([personId,programmeId])
+}
+model SupportScheme {
+ id String @id @default(cuid())
+ name String @unique
+ applications GrantApplication[]
+}
+model GrantApplication {
+ id String @id @default(cuid())
+ schemeId String
+ scheme SupportScheme @relation(fields:[schemeId],references:[id])
+ personId String
+ person Person @relation(fields:[personId],references:[id])
+ applicationDate DateTime?
+ submissionDate DateTime?
+ approvalDate DateTime?
+ expiryDate DateTime?
+ nextReviewDate DateTime?
+ status String @default("Not Applied")
+ amount Float?
+ notes String @default("")
+ assignedId String?
+ assigned User? @relation(fields:[assignedId],references:[id])
+ updatedAt DateTime @updatedAt
+ alerts Alert[]
+ @@index([status,nextReviewDate])
+ @@index([personId])
+}
+model Alert {
+ id String @id @default(cuid())
+ sourceKey String? @unique
+ title String
+ personId String?
+ person Person? @relation(fields:[personId],references:[id])
+ grantId String?
+ grant GrantApplication? @relation(fields:[grantId],references:[id])
+ type String
+ dueDate DateTime
+ priority String @default("Normal")
+ assignedId String?
+ assigned User? @relation(fields:[assignedId],references:[id])
+ status String @default("Pending")
+ notes String @default("")
+ @@index([status,dueDate])
+}
+model AuditLog {
+ id String @id @default(cuid())
+ userId String
+ user User @relation(fields:[userId],references:[id])
+ action String
+ entityType String
+ entityId String
+ timestamp DateTime @default(now())
+ changes Json
+ @@index([entityType,entityId,timestamp])
+}
+model ImportBatch {
+ id String @id @default(cuid())
+ filename String
+ userId String
+ createdAt DateTime @default(now())
+ rows ImportRow[]
+}
+model ImportRow {
+ id String @id @default(cuid())
+ batchId String
+ batch ImportBatch @relation(fields:[batchId],references:[id])
+ rowNumber Int
+ action String
+ memberId String
+ raw Json
+ @@index([batchId])
+}
+model LoginAttempt {
+ username String @id
+ failures Int @default(0)
+ lockedUntil DateTime?
+}

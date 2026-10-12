@@ -23,3 +23,8 @@ The supplied workbook was uploaded, parsed, committed and re-previewed through l
 Desktop and tablet screenshots using fictional records were inspected for layout, legibility and chart rendering. Tests used Chromium. Other browsers, an operating-system reboot and actual staff-device LAN/HTTPS deployment were not tested. The process-restart test verified records and sessions after completely terminating and restarting the production server.
 
 Run the commands in README to reproduce these checks. `test:e2e` requires the supplied workbook path or `SAMPLE_WORKBOOK`, and creates a local test copy containing its data; remove that copy after stopping the test server. Alert refresh occurs when the application is used. No external notification or AI integration is included.
+
+
+## Cloud deployment preparation - 12 October 2026
+
+Added separate PostgreSQL schema/migration, cloud build/start commands, Render port/origin configuration, a database health endpoint, and token-protected first administrator setup. Local SQLite configuration remains separate. TypeScript, ESLint, 18 unit/integration tests, three Chromium workflow tests, both Prisma schema validations, local migrations and both local/PostgreSQL-client production builds passed. The source-only deployment archive was inspected for excluded database files, workbooks and credentials. The PostgreSQL SQL migration was generated from the validated schema, but has not been applied to a live PostgreSQL server. Render hosting, Supabase connection/migration, actual HTTPS sessions and hosted backup restoration require the user accounts and remain unverified. No code, personal records or credentials were uploaded.

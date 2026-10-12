@@ -10,18 +10,21 @@ import {
   tokenHash,
 } from "@/lib/auth";
 import { checkOrigin, errorResponse } from "@/lib/http";
+import { checkSetupAccess } from "@/lib/setup-access";
 export async function GET() {
   try {
     const user = await currentUser();
     return NextResponse.json({
       user: user ? { id: user.id, name: user.name, role: user.role } : null,
       setup: (await db.user.count()) === 0,
+      setupRequiresToken: Boolean(process.env.SETUP_TOKEN),
+      hosted: process.env.DATABASE_URL?.startsWith("postgres") ?? false,
     });
   } catch {
     return NextResponse.json(
       {
         error:
-          "Cannot open the local database. Run the documented migration command.",
+          "Cannot connect to the database. Check the deployment and migration instructions.",
       },
       { status: 503 },
     );
@@ -36,6 +39,7 @@ export async function POST(req: NextRequest) {
         username: z.string().trim().max(80).default(""),
         password: z.string().max(128).default(""),
         name: z.string().trim().max(100).default(""),
+        setupToken: z.string().max(256).default(""),
       })
       .parse(await req.json());
     if (v.action === "logout") {
@@ -47,30 +51,30 @@ export async function POST(req: NextRequest) {
     }
     let user;
     if (v.action === "setup") {
-      if (
-        !["localhost", "127.0.0.1", "[::1]"].includes(
-          new URL(req.headers.get("origin")!).hostname,
-        )
-      )
-        throw new Error(
-          "Initial setup must be performed on the hosting computer.",
-        );
+      checkSetupAccess(
+        req.headers.get("origin")!,
+        v.setupToken,
+        process.env.SETUP_TOKEN,
+      );
       if (v.password.length < 12 || !v.username || !v.name)
         throw new Error(
           "Name, username and a password of at least 12 characters are required.",
         );
-      user = await db.$transaction(async (tx) => {
-        if (await tx.user.count())
-          throw new Error("Setup is already complete.");
-        return tx.user.create({
-          data: {
-            username: v.username.toLowerCase(),
-            name: v.name,
-            passwordHash: hashPassword(v.password),
-            role: "Admin",
-          },
-        });
-      });
+      user = await db.$transaction(
+        async (tx) => {
+          if (await tx.user.count())
+            throw new Error("Setup is already complete.");
+          return tx.user.create({
+            data: {
+              username: v.username.toLowerCase(),
+              name: v.name,
+              passwordHash: hashPassword(v.password),
+              role: "Admin",
+            },
+          });
+        },
+        { isolationLevel: "Serializable" },
+      );
     } else {
       const username = v.username.toLowerCase();
       const attempt = await db.loginAttempt.findUnique({ where: { username } });

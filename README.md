@@ -1,6 +1,6 @@
 # P3H local case management
 
-An internal staff workspace for caregiver/member records, separate linked care recipients, Excel imports, programme matching, grants, reminders and caseload reporting. Personal data stays in a SQLite file on the hosting computer. No cloud database, analytics, AI service, remote fonts or external assets are used at runtime.
+An internal staff workspace for caregiver/member records, separate linked care recipients, Excel imports, programme matching, grants, reminders and caseload reporting. The default local configuration stores records in SQLite on the hosting computer. An optional Render + Supabase PostgreSQL configuration is now available; in that mode, records and uploads are processed by those hosting providers. No analytics, AI service, remote fonts or external assets are used at runtime.
 
 ## First installation (Windows PowerShell)
 
@@ -17,6 +17,10 @@ npm.cmd run dev
 Open http://127.0.0.1:3000 on the host. The first screen creates an administrator: choose your own name, username and password (at least 12 characters). There are **no default passwords**. First setup is permitted only through the host's loopback address. Later visits use normal sign-in. Keep the database and its backups out of shared source-code repositories.
 
 The database is `data/p3h.db`, outside build output. Restarting the browser, application or computer does not reset it. Startup does not seed, migrate destructively or import records automatically. `.env` contains the SQLite URL and cookie configuration; session secrets are random tokens rather than a fixed signing password.
+
+## Free cloud hosting
+
+Follow [the Render + Supabase deployment guide](docs/cloud-deployment.md) for browser-based setup without Node.js on staff laptops. Use the separate `cloud:build` and `cloud:start` commands; the local SQLite commands below are not cloud deployment commands. Never publish database files, real workbooks or credentials to GitHub.
 
 ## Production on the local host
 
