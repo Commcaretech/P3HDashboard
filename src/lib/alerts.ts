@@ -8,16 +8,16 @@ export function birthdayPlans(
 ) {
   const b = birthday(dob, now);
   if (b.days > 30) return [];
-  return [30, 7, 1, 0]
-    .filter((n) => b.days <= n)
-    .map((n) => ({
-      sourceKey: `birthday:${id}:${b.date}:${n}`,
+  return [
+    {
+      sourceKey: `birthday:${id}:${b.date}`,
       personId: id,
-      title: `Birthday: ${name} (${n === 0 ? "today" : `${n}-day reminder`})`,
+      title: `Birthday: ${name} (${b.days === 0 ? "today" : `${b.days} ${b.days === 1 ? "day" : "days"} away`})`,
       type: "Birthday",
-      dueDate: new Date(new Date(b.date).getTime() - n * 86400000),
-      priority: n <= 1 ? "High" : "Normal",
-    }));
+      dueDate: new Date(b.date),
+      priority: b.days <= 1 ? "High" : "Normal",
+    },
+  ];
 }
 export async function refreshAlerts() {
   const now = today();
@@ -35,10 +35,34 @@ export async function refreshAlerts() {
           now,
         )) {
           keys.push(plan.sourceKey);
+          const current = await tx.alert.findUnique({
+            where: { sourceKey: plan.sourceKey },
+          });
+          if (!current) {
+            // Reuse the closest old reminder so its completion and snooze survive.
+            const legacy = await tx.alert.findFirst({
+              where: {
+                personId: p.id,
+                type: "Birthday",
+                sourceKey: { startsWith: `${plan.sourceKey}:` },
+              },
+              orderBy: { dueDate: "desc" },
+            });
+            if (legacy)
+              await tx.alert.update({
+                where: { id: legacy.id },
+                data: { sourceKey: plan.sourceKey },
+              });
+          }
           await tx.alert.upsert({
             where: { sourceKey: plan.sourceKey },
             create: { ...plan, assignedId: p.assignedId },
-            update: { assignedId: p.assignedId },
+            update: {
+              title: plan.title,
+              dueDate: plan.dueDate,
+              priority: plan.priority,
+              assignedId: p.assignedId,
+            },
           });
         }
       }

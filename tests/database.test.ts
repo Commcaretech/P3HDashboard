@@ -226,7 +226,7 @@ test("relational CRUD, persistence, rollback, audit and idempotent alerts", asyn
   });
   await refreshAlerts();
   const count = await db.alert.count();
-  assert.equal(count, 6);
+  assert.equal(count, 3);
   const generated = await db.alert.findFirstOrThrow({
     where: { type: "Grant review" },
   });
@@ -272,5 +272,68 @@ test("relational CRUD, persistence, rollback, audit and idempotent alerts", asyn
         "old-version",
       ),
     ),
+  );
+});
+
+test("birthday refresh consolidates legacy reminders and preserves snooze and completion", async () => {
+  const date = new Date(Date.parse(today()) + 86400000);
+  const birthdayDate = date.toISOString().slice(0, 10);
+  const person = await db.person.create({
+    data: {
+      kind: "Member",
+      memberId: "BIRTHDAY-FAKE",
+      name: "Fictional Birthday",
+      dob: date,
+    },
+  });
+  const snooze = new Date(Date.parse(today()) + 2 * 86400000);
+  const originals = [];
+  for (const days of [30, 7, 1]) {
+    originals.push(
+      await db.alert.create({
+        data: {
+          sourceKey: `birthday:${person.id}:${birthdayDate}:${days}`,
+          personId: person.id,
+          type: "Birthday",
+          title: `${days}-day reminder`,
+          dueDate: new Date(date.getTime() - days * 86400000),
+          ...(days === 1
+            ? { snoozedUntil: snooze, notes: "Staff snoozed this reminder" }
+            : {}),
+        },
+      }),
+    );
+  }
+  await refreshAlerts();
+  const pending = await db.alert.findMany({
+    where: { personId: person.id, type: "Birthday", status: "Pending" },
+  });
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].id, originals[2].id);
+  assert.equal(pending[0].sourceKey, `birthday:${person.id}:${birthdayDate}`);
+  assert.equal(pending[0].title, "Birthday: Fictional Birthday (1 day away)");
+  assert.equal(pending[0].dueDate.toISOString(), date.toISOString());
+  assert.equal(pending[0].snoozedUntil?.toISOString(), snooze.toISOString());
+  assert.equal(pending[0].notes, "Staff snoozed this reminder");
+  assert.equal(
+    await db.alert.count({
+      where: { personId: person.id, status: "Dismissed" },
+    }),
+    2,
+  );
+  await refreshAlerts();
+  assert.equal(await db.alert.count({ where: { personId: person.id } }), 3);
+  await db.alert.update({
+    where: { id: pending[0].id },
+    data: { status: "Completed", snoozedUntil: null },
+  });
+  await refreshAlerts();
+  assert.equal(
+    await db.alert.count({ where: { personId: person.id, status: "Pending" } }),
+    0,
+  );
+  assert.equal(
+    (await db.alert.findUniqueOrThrow({ where: { id: pending[0].id } })).status,
+    "Completed",
   );
 });

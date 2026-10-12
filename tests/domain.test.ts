@@ -185,16 +185,30 @@ test("birthday windows, year rollover and leap birthdays", () => {
   );
   assert.equal(
     birthdayPlans("p", "Fake", new Date("1950-10-12"), "2026-10-11").length,
-    3,
+    1,
   );
   assert.equal(
     birthdayPlans("p", "Fake", new Date("1950-10-11"), "2026-10-11").length,
-    4,
+    1,
   );
   assert.equal(
     birthdayPlans("p", "Fake", new Date("1950-12-11"), "2026-10-11").length,
     0,
   );
+  for (const days of [30, 7, 2, 1, 0]) {
+    const now = new Date(Date.parse("2026-10-31") - days * 86400000)
+      .toISOString()
+      .slice(0, 10);
+    const plans = birthdayPlans("p", "Fake", new Date("1950-10-31"), now);
+    assert.equal(plans.length, 1);
+    assert.equal(plans[0].sourceKey, "birthday:p:2026-10-31");
+    assert.equal(plans[0].dueDate.toISOString().slice(0, 10), "2026-10-31");
+    assert.equal(
+      plans[0].title,
+      `Birthday: Fake (${days === 0 ? "today" : `${days} ${days === 1 ? "day" : "days"} away`})`,
+    );
+    assert.equal(plans[0].priority, days <= 1 ? "High" : "Normal");
+  }
 });
 test("short category names normalize without duplicating uppercase entries", () =>
   assert.deepEqual(categories("ARTS, Arts, arts, THAI, Thai, ADHD, adhd"), [

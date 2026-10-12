@@ -193,6 +193,12 @@ test("critical local case-management workflows and server permissions", async ({
     page.getByRole("link", { name: "HCG: Grant review", exact: true }),
   ).toBeVisible();
   await page.getByRole("link", { name: /^Alerts/ }).click();
+  const birthdayRow = page.getByRole("row").filter({
+    hasText: "Birthday: Fictional Recipient (today)",
+  });
+  await expect(birthdayRow).toHaveCount(1);
+  await page.getByRole("button", { name: "Refresh Alerts" }).click();
+  await expect(birthdayRow).toHaveCount(1);
   const alertRow = page
     .getByRole("row")
     .filter({ hasText: "HCG: Grant review" });

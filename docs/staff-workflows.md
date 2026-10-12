@@ -14,6 +14,8 @@ Profiles show care relationships, case owner, next action, outstanding alerts, s
 
 Use All Alerts, My Alerts, Unassigned, High Priority, Overdue or Completed. Combine these with the Filters panel. Snooze offers Tomorrow, Next Week or a chosen future date. The original due date stays unchanged; `snoozedUntil` determines when the reminder appears. Refreshing generated alerts preserves snoozes and completed statuses. Completing, dismissing or reopening clears the snooze. Actions are audited.
 
+Birthday reminders show one current alert per person within the next 30 days, with the exact countdown (for example, `1 day away` or `today`). Refresh updates the same annual reminder rather than adding separate 30-day, 7-day and 1-day alerts. Its due date is the birthday. Older overlapping reminders are dismissed automatically; the closest existing reminder's completion or snooze is retained.
+
 ## Programmes
 
 Forms separate programme details, suitability, schedule/availability and notes. Structured categories support suggestions, removable chips and new categories. Frequency suggestions include Weekly, Fortnightly, Monthly, One-off and Custom; existing custom text remains supported.
