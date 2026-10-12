@@ -3,7 +3,9 @@ import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Data, label } from "@/lib/types";
 import { match, MatchPerson } from "@/lib/domain";
-import { Table, Badge } from "./ui";
+import { compareRecommendations } from "@/lib/matching";
+import Link from "next/link";
+import { Badge } from "./ui";
 import { Filters, FilterBar, names } from "./common";
 export default function Matching({
   d,
@@ -41,8 +43,9 @@ export default function Matching({
             (!f.availability ||
               (p.registrationStatus === "Open" &&
                 (p.capacity === 0 ||
-                  p.participations.filter((x) => x.status === "Registered")
-                    .length < p.capacity))),
+                  (p.registeredCount ??
+                    p.participations.filter((x) => x.status === "Registered")
+                      .length) < p.capacity))),
         )
         .map((p) => ({
           p,
@@ -52,7 +55,10 @@ export default function Matching({
             names(p),
           ),
         }))
-        .sort((a, b) => b.score - a.score)
+        .sort(
+          (a, b) =>
+            compareRecommendations(a, b) || a.p.name.localeCompare(b.p.name),
+        )
     : [];
   return (
     <>
@@ -142,53 +148,102 @@ export default function Matching({
             {results.length} recommendations. Scores describe recorded
             compatibility; staff should confirm individual needs.
           </p>
-          <Table
-            headers={[
-              "Programme / Match",
-              "Reasons",
-              "Schedule / venue",
-              "Action",
-            ]}
-            rows={results
+          <div className="match-grid">
+            {results
               .filter(
                 ({ p }) =>
                   !f.q || p.name.toLowerCase().includes(f.q.toLowerCase()),
               )
-              .map((r, i) => ({
-                id: r.p.id,
-                sort: String(i).padStart(5, "0"),
-                cells: [
-                  <span key="name">
-                    <strong>{r.p.name}</strong>
-                    <br />
-                    <Badge>{r.score}% Match</Badge>
-                  </span>,
-                  <ul key="reasons">
-                    {r.reasons.map((s) => (
-                      <li key={s}>{s}</li>
-                    ))}
-                  </ul>,
-                  `${r.p.day} ${r.p.startTime}–${r.p.endTime} · ${r.p.venue || "Venue not recorded"} · ${r.p.registrationStatus}`,
-                  write ? (
-                    <button
-                      key="register"
-                      className="secondary"
-                      onClick={() =>
-                        void action("participation", {
-                          personId: recipientId || memberId,
-                          programmeId: r.p.id,
-                          status: "Registered",
-                        })
-                      }
-                    >
-                      Register participation
-                    </button>
-                  ) : (
-                    "View only"
-                  ),
-                ],
-              }))}
-          />
+              .map((r, i) => {
+                const filled =
+                  r.p.registeredCount ??
+                  r.p.participations.filter((x) => x.status === "Registered")
+                    .length;
+                return (
+                  <section
+                    className={`panel match-card ${!r.eligible ? "ineligible" : ""}`}
+                    key={r.p.id}
+                  >
+                    <div className="section-head">
+                      <h2>
+                        {i + 1}. {r.p.name}
+                      </h2>
+                      <Badge>
+                        {r.eligible ? `${r.score}% Match` : "Not Recommended"}
+                      </Badge>
+                    </div>
+                    <p>
+                      Data confidence: <strong>{r.confidence}</strong> (
+                      {r.confidenceScore}% complete)
+                    </p>
+                    {r.missing.length > 0 && (
+                      <p className="muted">Missing: {r.missing.join(", ")}</p>
+                    )}
+                    <ul>
+                      {r.reasons.map((reason) => (
+                        <li key={reason}>{reason}</li>
+                      ))}
+                    </ul>
+                    <div className="match-schedule">
+                      <strong>
+                        {r.p.day} {r.p.startTime}–{r.p.endTime}
+                      </strong>
+                      <span>
+                        {r.p.venue || "Venue not recorded"} ·{" "}
+                        {r.p.centre || "All centres"}
+                      </span>
+                      <span>
+                        {r.p.frequency || "Frequency not recorded"} ·{" "}
+                        {r.p.capacity
+                          ? `${filled} / ${r.p.capacity} places filled`
+                          : `${filled} registered · capacity not recorded`}
+                      </span>
+                      <Badge>{r.p.registrationStatus}</Badge>
+                    </div>
+                    <div className="actions">
+                      <Link
+                        className="secondary link-button"
+                        href={`/programmes?q=${encodeURIComponent(r.p.name)}`}
+                      >
+                        View Programme
+                      </Link>
+                      {write && (
+                        <button
+                          className="secondary"
+                          disabled={
+                            !r.eligible ||
+                            r.p.registrationStatus !== "Open" ||
+                            (r.p.capacity > 0 && filled >= r.p.capacity)
+                          }
+                          onClick={() =>
+                            void action("participation", {
+                              personId: recipientId || memberId,
+                              programmeId: r.p.id,
+                              status: "Registered",
+                            })
+                          }
+                        >
+                          Register participation
+                        </button>
+                      )}
+                    </div>
+                  </section>
+                );
+              })}
+          </div>
+          {!results.length && (
+            <section className="panel empty">
+              <h2>No suitable programmes found.</h2>
+              <p>
+                Review your filters and the recorded language and mobility
+                requirements.
+              </p>
+              <button className="secondary" onClick={() => setF({})}>
+                Review Filters
+              </button>{" "}
+              <Link href="/programmes">View All Programmes</Link>
+            </section>
+          )}
         </>
       )}
     </>

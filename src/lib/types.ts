@@ -23,6 +23,8 @@ export type Person = {
   remarks: string;
   createdAt: string;
   updatedAt: string;
+  assignedId: string | null;
+  assigned: { name: string } | null;
   rawImport: Record<string, string | number> | null;
   languages: { language: { name: string }; mode: string }[];
   interests: { interest: { name: string } }[];
@@ -50,6 +52,7 @@ export type Relationship = {
   relationship: string;
 };
 export type Programme = {
+  registeredCount?: number;
   id: string;
   name: string;
   description: string;
@@ -93,6 +96,7 @@ export type Alert = {
   personId: string | null;
   type: string;
   dueDate: string;
+  snoozedUntil: string | null;
   priority: string;
   assignedId: string | null;
   assigned: { name: string } | null;
@@ -105,6 +109,8 @@ export type Staff = {
   username: string;
   role: string;
   active: boolean;
+  allCentres: boolean;
+  allowedCentres: { centre: string }[];
 };
 export type Audit = {
   id: string;

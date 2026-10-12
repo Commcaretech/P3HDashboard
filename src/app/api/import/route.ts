@@ -1,3 +1,8 @@
+import {
+  centreAllowed,
+  requirePersonAccess,
+  validateAssignment,
+} from "@/lib/access";
 import { NextRequest, NextResponse } from "next/server";
 import { extractMemberSupport } from "@/lib/support-extraction";
 import { z } from "zod";
@@ -61,6 +66,14 @@ export async function POST(req: NextRequest) {
       const byMemberId = new Map(existing.map((p) => [p.memberId, p]));
       for (const r of parsed) {
         const p = byMemberId.get(r.memberId);
+        if (
+          !centreAllowed(user, r.centre) ||
+          (p && !centreAllowed(user, p.centre))
+        ) {
+          r.action = "Skip";
+          r.errors.push("Row is outside your authorised centres.");
+          continue;
+        }
         if (p) {
           r.existingId = p.id;
           r.action = "Skip";
@@ -121,6 +134,11 @@ export async function POST(req: NextRequest) {
             const existing = await tx.person.findUnique({
               where: { memberId: id },
             });
+            if (!centreAllowed(user, String(r.centre ?? "")))
+              throw new Error(
+                "Your centre permissions do not permit this record.",
+              );
+            if (existing) await requirePersonAccess(tx, user, existing.id);
             if (existing && !r.existing?.updatedAt)
               throw new Error(
                 "Preview existing records again before updating.",
@@ -130,9 +148,16 @@ export async function POST(req: NextRequest) {
               ...r,
               name: r.name || existing?.name || "",
               kind: "Member",
+              assignedId: existing?.assignedId ?? "",
               status: existing?.status ?? "Active",
               zbi: r.assessmentOwner === "Member" ? r.zbi : "",
             });
+            await validateAssignment(
+              tx,
+              user,
+              existing?.assignedId,
+              input.centre,
+            );
             if (r.assessmentOwner === "Care Recipient" && !r.confirmedRecipient)
               throw new Error(
                 "Confirm a care recipient before assigning their ZBI.",
@@ -160,6 +185,7 @@ export async function POST(req: NextRequest) {
               const cr = await savePerson(tx, user.id, {
                 kind: "Care Recipient",
                 name: r.recipientName,
+                centre: p.centre,
                 conditions: r.recipientConditions ?? "",
                 zbi: r.assessmentOwner === "Care Recipient" ? r.zbi : "",
               });
@@ -185,6 +211,17 @@ export async function POST(req: NextRequest) {
             },
           });
         }
+        await tx.importBatch.update({
+          where: { id: batch.id },
+          data: {
+            createdCount: created,
+            updatedCount: updated,
+            skippedCount: skipped,
+            errorCount: rows.filter(
+              (r) => Array.isArray(r.errors) && r.errors.length > 0,
+            ).length,
+          },
+        });
         await audit(
           tx,
           user.id,

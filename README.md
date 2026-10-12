@@ -2,6 +2,10 @@
 
 An internal staff workspace for caregiver/member records, separate linked care recipients, Excel imports, programme matching, grants, reminders and caseload reporting. The default local configuration stores records in SQLite on the hosting computer. An optional Render + Supabase PostgreSQL configuration is now available; in that mode, records and uploads are processed by those hosting providers. No analytics, AI service, remote fonts or external assets are used at runtime.
 
+## Updated staff workflows
+
+See [the staff workflow guide](docs/staff-workflows.md) for case assignment, My Work, profile completeness, snoozing, import comparisons/history and centre permissions. Update an existing installation with `npm.cmd run db:generate`, `npm.cmd run db:migrate`, then rebuild or restart development. Back up first with `npm.cmd run backup`. No reset or seed is required. Existing accounts retain their prior centre access until an administrator reviews it in Settings.
+
 ## First installation (Windows PowerShell)
 
 Install Node.js 24 LTS, then open PowerShell in this project folder.

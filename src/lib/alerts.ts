@@ -37,8 +37,8 @@ export async function refreshAlerts() {
           keys.push(plan.sourceKey);
           await tx.alert.upsert({
             where: { sourceKey: plan.sourceKey },
-            create: plan,
-            update: {},
+            create: { ...plan, assignedId: p.assignedId },
+            update: { assignedId: p.assignedId },
           });
         }
       }

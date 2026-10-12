@@ -27,6 +27,9 @@ export default function Grants({
           .toLowerCase()
           .includes(f.q.toLowerCase())) &&
       (!f.status || g.status === f.status) &&
+      (!f.assigned ||
+        g.assignedId === f.assigned ||
+        d.staff.find((s) => s.id === g.assignedId)?.name === f.assigned) &&
       (!f.scheme || g.scheme.name === f.scheme),
   );
   return (
@@ -42,6 +45,11 @@ export default function Grants({
         values={f}
         onChange={setF}
         options={[
+          {
+            key: "assigned",
+            label: "Assigned staff",
+            values: d.staff.map((s) => s.name),
+          },
           {
             key: "status",
             label: "Status",
@@ -70,10 +78,26 @@ export default function Grants({
           cells: [
             <details key="details">
               <summary>{g.scheme.name}</summary>
-              <p>
-                Applied: {day(g.applicationDate)} · Submitted:{" "}
-                {day(g.submissionDate)} · Approved: {day(g.approvalDate)}
-              </p>
+              <ol className="timeline">
+                {[
+                  ["Applied", g.applicationDate],
+                  ["Submitted", g.submissionDate],
+                  ["Approved", g.approvalDate],
+                  ["Next review", g.nextReviewDate],
+                  ["Expiry", g.expiryDate],
+                ]
+                  .filter(([, date]) => date)
+                  .map(([name, date]) => (
+                    <li key={name}>
+                      <strong>{name}</strong>
+                      <span>{day(date)}</span>
+                    </li>
+                  ))}
+                <li>
+                  <strong>Current Status</strong>
+                  <Badge>{g.status}</Badge>
+                </li>
+              </ol>
               <p className="preserve">{g.notes}</p>
             </details>,
             <PersonLink key="person" id={g.personId}>

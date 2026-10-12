@@ -87,6 +87,7 @@ export async function savePerson(
   const data = {
     ...base,
     memberId: memberId || null,
+    assignedId: base.assignedId || null,
     dob: dob ? new Date(dob) : null,
     onboardingDate: onboardingDate ? new Date(onboardingDate) : null,
     ...(raw ? { rawImport: raw } : {}),
@@ -154,6 +155,16 @@ export async function savePerson(
       },
     });
   }
+  if (before && before.assignedId !== p.assignedId)
+    await audit(
+      tx,
+      userId,
+      "Assignment changed",
+      p.kind,
+      p.id,
+      { assignedId: before.assignedId },
+      { assignedId: p.assignedId },
+    );
   await audit(
     tx,
     userId,

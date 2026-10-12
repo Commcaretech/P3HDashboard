@@ -1,3 +1,11 @@
+import {
+  centreAllowed,
+  unrestricted,
+  requirePersonAccess,
+  requireProgrammeAccess,
+  requireAlertAccess,
+  validateAssignment,
+} from "@/lib/access";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser, hashPassword } from "@/lib/auth";
@@ -17,6 +25,8 @@ export async function POST(req: NextRequest) {
           "grant",
           "alert",
           "alertStatus",
+          "snooze",
+          "userAccess",
           "archive",
           "relationship",
           "unlink",
@@ -29,19 +39,44 @@ export async function POST(req: NextRequest) {
         data: z.record(z.string(), z.unknown()).default({}),
       })
       .parse(await req.json());
-    const u = await requireUser(b.action === "user" ? "admin" : "write");
+    const u = await requireUser(
+      ["user", "userAccess"].includes(b.action) ? "admin" : "write",
+    );
     if (b.action === "refresh") {
       await refreshAlerts();
       return NextResponse.json({ ok: true });
     }
     const result = await db.$transaction(
       async (tx) => {
-        if (b.action === "person")
+        if (b.action === "person") {
+          if (b.id) await requirePersonAccess(tx, u, b.id);
+          const centre = String(b.data.centre ?? "").trim();
+          if (!centreAllowed(u, centre))
+            throw new Error(
+              "Your centre permissions do not permit this record.",
+            );
+          await validateAssignment(tx, u, b.data.assignedId, centre);
           return savePerson(tx, u.id, b.data, b.id, undefined, b.version);
-        if (b.action === "programme")
+        }
+        if (b.action === "programme") {
+          if (b.id) await requireProgrammeAccess(tx, u, b.id);
+          const centre = String(b.data.centre ?? "").trim();
+          if (!centreAllowed(u, centre))
+            throw new Error(
+              "Your centre permissions do not permit this record.",
+            );
           return saveProgramme(tx, u.id, b.data, b.id, b.version);
+        }
         if (b.action === "grant") {
           const v = grantSchema.parse(b.data);
+          const permitted = await requirePersonAccess(tx, u, v.personId);
+          await validateAssignment(tx, u, v.assignedId, permitted.centre);
+          if (b.id) {
+            const old = await tx.grantApplication.findUniqueOrThrow({
+              where: { id: b.id },
+            });
+            await requirePersonAccess(tx, u, old.personId);
+          }
           const person = await tx.person.findUnique({
             where: { id: v.personId },
           });
@@ -114,6 +149,8 @@ export async function POST(req: NextRequest) {
             })
             .parse(b.data);
           if (v.personId) {
+            const permitted = await requirePersonAccess(tx, u, v.personId);
+            await validateAssignment(tx, u, v.assignedId, permitted.centre);
             const person = await tx.person.findUnique({
               where: { id: v.personId },
             });
@@ -133,23 +170,56 @@ export async function POST(req: NextRequest) {
             data: {
               ...v,
               personId: v.personId || null,
-              assignedId: v.assignedId || null,
+              assignedId: v.assignedId || (unrestricted(u) ? null : u.id),
               dueDate: new Date(v.dueDate),
             },
           });
           await audit(tx, u.id, "Alert created", "Alert", a.id, null, v);
           return a;
         }
+        if (b.action === "snooze") {
+          const v = z
+            .object({
+              date: z.string().refine(
+                (d) =>
+                  Boolean(parseDate(d)) &&
+                  d >
+                    new Intl.DateTimeFormat("en-CA", {
+                      timeZone: "Asia/Singapore",
+                      year: "numeric",
+                      month: "2-digit",
+                      day: "2-digit",
+                    }).format(new Date()),
+                "Choose a future date",
+              ),
+            })
+            .parse(b.data);
+          const before = await requireAlertAccess(tx, u, b.id ?? "");
+          if (before.status !== "Pending")
+            throw new Error("Only pending alerts can be snoozed.");
+          const a = await tx.alert.update({
+            where: { id: before.id },
+            data: { snoozedUntil: new Date(v.date) },
+          });
+          await audit(
+            tx,
+            u.id,
+            "Alert snoozed",
+            "Alert",
+            a.id,
+            { snoozedUntil: before.snoozedUntil, dueDate: before.dueDate },
+            { snoozedUntil: a.snoozedUntil },
+          );
+          return a;
+        }
         if (b.action === "alertStatus") {
           const v = z
             .object({ status: z.enum(["Completed", "Dismissed", "Pending"]) })
             .parse(b.data);
-          const before = await tx.alert.findUniqueOrThrow({
-            where: { id: b.id },
-          });
+          const before = await requireAlertAccess(tx, u, b.id ?? "");
           const a = await tx.alert.update({
             where: { id: before.id },
-            data: v,
+            data: { ...v, snoozedUntil: null },
           });
           await audit(
             tx,
@@ -167,6 +237,8 @@ export async function POST(req: NextRequest) {
             .object({ type: z.enum(["person", "programme"]) })
             .parse(b.data);
           if (!b.id) throw new Error("Record is required");
+          if (v.type === "person") await requirePersonAccess(tx, u, b.id);
+          else await requireProgrammeAccess(tx, u, b.id);
           const before =
             v.type === "person"
               ? await tx.person.findUniqueOrThrow({ where: { id: b.id } })
@@ -200,6 +272,8 @@ export async function POST(req: NextRequest) {
               relationship: z.string().trim().min(1).max(200),
             })
             .parse(b.data);
+          await requirePersonAccess(tx, u, v.memberId);
+          await requirePersonAccess(tx, u, v.recipientId);
           const m = await tx.person.findUnique({ where: { id: v.memberId } }),
             r = await tx.person.findUnique({ where: { id: v.recipientId } });
           if (
@@ -226,6 +300,8 @@ export async function POST(req: NextRequest) {
           const before = await tx.careRelationship.findUniqueOrThrow({
             where: { id: b.id },
           });
+          await requirePersonAccess(tx, u, before.memberId);
+          await requirePersonAccess(tx, u, before.recipientId);
           await tx.careRelationship.delete({ where: { id: b.id } });
           await audit(
             tx,
@@ -251,6 +327,8 @@ export async function POST(req: NextRequest) {
               ]),
             })
             .parse(b.data);
+          await requireProgrammeAccess(tx, u, v.programmeId);
+          await requirePersonAccess(tx, u, v.personId);
           const p = await tx.programme.findUniqueOrThrow({
             where: { id: v.programmeId },
             include: { participations: true },
@@ -290,6 +368,54 @@ export async function POST(req: NextRequest) {
           );
           return saved;
         }
+        if (b.action === "userAccess") {
+          const v = z
+            .object({
+              allCentres: z.enum(["All centres", "Selected centres"]),
+              centres: z.string().max(2000),
+            })
+            .parse(b.data);
+          const before = await tx.user.findUniqueOrThrow({
+            where: { id: b.id },
+            include: { allowedCentres: true },
+          });
+          const centres = [
+            ...new Set(
+              v.centres
+                .split(/[,;\n]/)
+                .map((c) => c.trim())
+                .filter(Boolean),
+            ),
+          ];
+          if (
+            before.role !== "Admin" &&
+            v.allCentres === "Selected centres" &&
+            !centres.length
+          )
+            throw new Error("Choose at least one centre.");
+          await tx.userCentre.deleteMany({ where: { userId: before.id } });
+          const saved = await tx.user.update({
+            where: { id: before.id },
+            data: {
+              allCentres:
+                before.role === "Admin" || v.allCentres === "All centres",
+              allowedCentres: { create: centres.map((centre) => ({ centre })) },
+            },
+          });
+          await audit(
+            tx,
+            u.id,
+            "Centre access updated",
+            "User",
+            before.id,
+            {
+              allCentres: before.allCentres,
+              centres: before.allowedCentres.map((c) => c.centre),
+            },
+            v,
+          );
+          return { id: saved.id };
+        }
         if (b.action === "user") {
           const v = z
             .object({
@@ -297,14 +423,34 @@ export async function POST(req: NextRequest) {
               name: z.string().trim().min(1).max(100),
               password: z.string().min(12).max(128),
               role: z.enum(roles),
+              allCentres: z
+                .enum(["All centres", "Selected centres"])
+                .default("Selected centres"),
+              centres: z.string().max(2000).default(""),
             })
             .parse(b.data);
+          const centres = [
+            ...new Set(
+              v.centres
+                .split(/[,;\n]/)
+                .map((c) => c.trim())
+                .filter(Boolean),
+            ),
+          ];
+          if (
+            v.role !== "Admin" &&
+            v.allCentres === "Selected centres" &&
+            !centres.length
+          )
+            throw new Error("Choose at least one centre.");
           const user = await tx.user.create({
             data: {
               username: v.username.toLowerCase(),
               name: v.name,
               passwordHash: hashPassword(v.password),
               role: v.role,
+              allCentres: v.role === "Admin" || v.allCentres === "All centres",
+              allowedCentres: { create: centres.map((centre) => ({ centre })) },
             },
           });
           await audit(

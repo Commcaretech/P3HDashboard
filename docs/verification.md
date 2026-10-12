@@ -38,3 +38,23 @@ Added conservative Receiving/Received/Completed parsing, review-before-save bulk
 ## Prefixed workbook compatibility - 12 October 2026
 
 Reproduced the supplied P3H_Synthetic_Test_Data.xlsx failure: ExcelJS does not recognise the spreadsheet namespace prefix in workbook XML. Added namespace-aware, in-memory XML canonicalisation before ExcelJS loading, while source date serials continue to come from the original archive. The original file is never rewritten. Normal files retain their original byte buffer; document types remain rejected. Verified all 18 data rows in the supplied workbook through the production browser upload/preview flow, without console/page errors and with unchanged file bytes. 24 unit/database tests, five production Chromium tests, TypeScript, ESLint and the production build passed. The compatibility-specific tests verify multiline/Unicode/special-character text, relationship aliases, first-sheet selection and date serial preservation. Hosted Render has not been accessed; publish the updated source and redeploy before retrying online. Set SYNTHETIC_WORKBOOK to an alternate path when reproducing the supplied-workbook browser test elsewhere.
+
+## Staff workspace upgrade - 12 October 2026
+
+Retained the existing application and added action-first navigation/dashboard, case ownership and My Work, profile completeness, structured controls, matching eligibility/confidence, snoozing, bulk import comparison/history, grant timelines, global suggestions, report filters and server centre restrictions. The additive staff-workflows migration exists for both SQLite and PostgreSQL; local migration deployment reports three migrations and none pending.
+
+| Final check | Result |
+| --- | --- |
+| `npm run typecheck` | Passed |
+| `npm run lint` | Passed |
+| `npm run test` | 30 unit/database tests passed |
+| `npm run test:e2e` | 9 production Chromium workflows passed |
+| `npm run test:persistence` | Production restart test passed |
+| `npm run db:validate` / `npm run cloud:validate` | Both schemas passed |
+| `npm run db:migrate` | Passed, no pending migrations |
+| `npm run build` / `npm run cloud:build` | Both production builds passed |
+| Operational SQLite integrity / foreign keys | OK; no violations |
+
+New automated coverage exercises active/centre-authorised assignment and its audit trail, effective snooze dates and refresh preservation, matching eligibility/confidence/ranking, weighted completeness, bulk import decisions, scoped API reads/writes, scoped manager audit access, unsaved-edit cancellation, keyboard suggestions and out-of-range server pagination. All nine browser workflows assert no console/page errors. Desktop and tablet dashboard screenshots containing fictional records were visually inspected. Both supplied workbook formats were tested in isolated databases; their original files were not changed.
+
+The operational database was backed up before migration and remains preserved. Source packaging excludes database files, uploaded workbooks and credentials. These checks do not prove live Render/Supabase connectivity, PostgreSQL migration execution, hosted HTTPS sessions, other browsers, or an operating-system reboot. No hosted service was contacted or deployed. Existing cloud deployment instructions remain applicable; redeploy the updated source to apply it online.

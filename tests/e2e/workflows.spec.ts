@@ -1,9 +1,23 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import ExcelJS from "exceljs";
 import { randomBytes } from "node:crypto";
 import { readFile, access } from "node:fs/promises";
 const password = randomBytes(24).toString("base64url");
 test.describe.configure({ mode: "serial" });
+const browserIssues = new WeakMap<Page, string[]>();
+test.beforeEach(({ page }) => {
+  const issues: string[] = [];
+  browserIssues.set(page, issues);
+  page.on("pageerror", (e) => issues.push(e.message));
+  page.on("console", (m) => {
+    if (m.type() === "error") issues.push(m.text());
+  });
+});
+test.afterEach(({ page }) => {
+  expect(browserIssues.get(page) ?? [], "Unexpected browser errors").toEqual(
+    [],
+  );
+});
 test("critical local case-management workflows and server permissions", async ({
   page,
   context,
@@ -130,10 +144,14 @@ test("critical local case-management workflows and server permissions", async ({
   await page
     .getByLabel("Programme name", { exact: true })
     .fill("Fictional Exercise");
+  await page.getByRole("tab", { name: "Suitability", exact: true }).click();
   await page.getByLabel("Supported languages").fill("Mandarin");
   await page.getByLabel("Suitable conditions").fill("Dementia");
   await page.getByLabel("Related interests").fill("Exercise, Walking");
   await page.getByLabel("Suitable mobility levels").fill("Assisted");
+  await page
+    .getByRole("tab", { name: "Schedule & availability", exact: true })
+    .click();
   await page.getByLabel("Capacity (0 = unspecified)").fill("10");
   await page.getByRole("button", { name: "Save record" }).click();
   await expect(
@@ -190,6 +208,7 @@ test("critical local case-management workflows and server permissions", async ({
     page.getByRole("link", { name: /Fictional Caregiver/ }),
   ).toBeVisible();
   await page.getByRole("link", { name: "Members", exact: true }).click();
+  await page.getByRole("button", { name: "Filters", exact: true }).click();
   await page.getByLabel("Centre", { exact: true }).selectOption("Fake Centre");
   await expect(
     page.getByRole("link", { name: /Fictional Caregiver/ }),
@@ -225,6 +244,9 @@ test("critical local case-management workflows and server permissions", async ({
     .getByLabel("Initial password (at least 12 characters)")
     .fill(password);
   await page.getByLabel("Role", { exact: true }).selectOption("Read Only");
+  await page
+    .getByLabel("Centre access", { exact: true })
+    .selectOption("All centres");
   await page.getByRole("button", { name: "Save record" }).click();
   await page.getByRole("button", { name: "Sign out" }).click();
   await page.getByLabel("Username", { exact: true }).fill("fake.reader");
@@ -270,6 +292,7 @@ test("navigation, reports, invalid forms, confirmations, duplicate updates and r
   ).toBe(true);
   for (const [path, title] of [
     ["dashboard", "Dashboard"],
+    ["my-work", "My Work"],
     ["members", "Members"],
     ["care-recipients", "Care Recipients"],
     ["programmes", "Programmes"],
@@ -317,9 +340,12 @@ test("navigation, reports, invalid forms, confirmations, duplicate updates and r
   ).toBeVisible();
   const second = page.getByRole("row").filter({ hasText: "E2E-002" });
   page.once("dialog", (d) => d.accept());
+  await second.locator(".action-menu summary").click();
   await second.getByRole("button", { name: "Archive", exact: true }).click();
   await expect(second).toHaveCount(0);
+  await page.getByRole("button", { name: "Filters", exact: true }).click();
   await page.getByLabel("Status", { exact: true }).selectOption("Archived");
+  await second.locator(".action-menu summary").click();
   await second.getByRole("button", { name: "Edit", exact: true }).click();
   await page
     .getByRole("dialog")
@@ -356,6 +382,7 @@ test("navigation, reports, invalid forms, confirmations, duplicate updates and r
     .getByRole("row")
     .filter({ hasText: "Fictional case review" });
   await manual.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await page.getByRole("button", { name: "Filters", exact: true }).click();
   await page.getByLabel("Status", { exact: true }).selectOption("Dismissed");
   await manual.getByRole("button", { name: "Reopen", exact: true }).click();
   await page.getByLabel("Status", { exact: true }).selectOption("Pending");
@@ -413,6 +440,9 @@ test("navigation, reports, invalid forms, confirmations, duplicate updates and r
     ),
   ).toBe(false);
   await page.goto("/dashboard");
+  await expect(
+    page.getByRole("heading", { name: "Needs attention", exact: true }),
+  ).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({
     path: "test-results/dashboard-desktop.png",
@@ -616,4 +646,459 @@ test("synthetic namespace-prefixed workbook uploads and previews all 18 rows", a
   expect(await page.getByLabel(/^Action for row /).count()).toBe(18);
   expect(await readFile(path)).toEqual(original);
   expect(errors).toEqual([]);
+});
+
+test("case assignment, snoozing, scoped search and direct API centre restrictions", async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: "http://127.0.0.1:3100" };
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "fake.admin", password },
+  });
+  const snapshot = await (await context.request.get("/api/data")).json();
+  const admin = snapshot.staff.find(
+    (s: { username: string }) => s.username === "fake.admin",
+  );
+  const create = async (action: string, data: Record<string, unknown>) => {
+    const r = await context.request.post("/api/action", {
+      headers,
+      data: { action, data },
+    });
+    expect(r.ok(), await r.text()).toBe(true);
+    return (await r.json()).result;
+  };
+  const owner = await create("person", {
+    kind: "Member",
+    memberId: "OWNER-FAKE",
+    name: "Fictional Owned Case",
+    centre: "Centre A",
+    assignedId: admin.id,
+    languages: "English",
+    interests: "Music",
+  });
+  const outside = await create("person", {
+    kind: "Member",
+    memberId: "OUTSIDE-FAKE",
+    name: "Fictional Other Centre",
+    centre: "Centre B",
+  });
+  const recipient = await create("person", {
+    kind: "Care Recipient",
+    name: "Fictional Other Recipient",
+    centre: "Centre B",
+  });
+  const programme = await create("programme", {
+    name: "Fictional Restricted Programme",
+    centre: "Centre B",
+    status: "Active",
+    registrationStatus: "Open",
+    capacity: "5",
+  });
+  const grant = await create("grant", {
+    personId: outside.id,
+    scheme: "HCG",
+    status: "Approved",
+    assignedId: admin.id,
+  });
+  const now = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Singapore",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const alert = await create("alert", {
+    title: "Fictional owned follow-up",
+    personId: owner.id,
+    type: "Case review",
+    dueDate: now,
+    priority: "High",
+    assignedId: admin.id,
+  });
+  const otherAlert = await create("alert", {
+    title: "Fictional restricted follow-up",
+    personId: outside.id,
+    type: "Case review",
+    dueDate: now,
+    priority: "High",
+    assignedId: admin.id,
+  });
+  await page.goto("/my-work");
+  await expect(
+    page
+      .getByRole("link", { name: "Fictional Owned Case", exact: true })
+      .first(),
+  ).toBeVisible();
+  await page.goto("/alerts?q=Fictional%20owned%20follow-up");
+  const row = page
+    .getByRole("row")
+    .filter({ hasText: "Fictional owned follow-up" });
+  await row.getByRole("button", { name: "Snooze", exact: true }).click();
+  await page.getByRole("button", { name: "Next Week", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(row).toContainText("Snoozed");
+  await page
+    .getByRole("button", { name: "Refresh Alerts", exact: true })
+    .click();
+  const updated = (
+    await (await context.request.get("/api/data")).json()
+  ).alerts.find((a: { id: string }) => a.id === alert.id);
+  expect(updated.dueDate.slice(0, 10)).toBe(now);
+  expect(updated.snoozedUntil.slice(0, 10)).toBe(
+    new Date(Date.parse(now) + 7 * 86400000).toISOString().slice(0, 10),
+  );
+  await page.goto(`/people/${owner.id}`);
+  await expect(
+    page.getByText("Profile completeness", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Fake Administrator", { exact: true }).first(),
+  ).toBeVisible();
+  const staff = await create("user", {
+    username: "scoped.staff",
+    name: "Fictional Scoped Staff",
+    password,
+    role: "Staff",
+    allCentres: "Selected centres",
+    centres: "Centre A",
+  });
+  expect(
+    (
+      await context.request.post("/api/action", {
+        headers,
+        data: {
+          action: "userAccess",
+          id: staff.id,
+          data: { allCentres: "Selected centres", centres: "Centre A" },
+        },
+      })
+    ).ok(),
+  ).toBe(true);
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "scoped.staff", password },
+  });
+  const scoped = await (await context.request.get("/api/data")).json();
+  expect(scoped.people.map((p: { id: string }) => p.id)).toContain(owner.id);
+  expect(scoped.people.map((p: { id: string }) => p.id)).not.toContain(
+    outside.id,
+  );
+  expect(scoped.programmes.map((p: { id: string }) => p.id)).not.toContain(
+    programme.id,
+  );
+  expect(scoped.grants.map((g: { id: string }) => g.id)).not.toContain(
+    grant.id,
+  );
+  expect(scoped.alerts.map((a: { id: string }) => a.id)).not.toContain(
+    otherAlert.id,
+  );
+  expect(
+    (
+      await (
+        await context.request.get("/api/search?q=Fictional%20Other")
+      ).json()
+    ).results,
+  ).toEqual([]);
+  for (const [action, id, data] of [
+    [
+      "person",
+      outside.id,
+      { kind: "Member", memberId: "OUTSIDE-FAKE", centre: "Centre A" },
+    ],
+    ["archive", outside.id, { type: "person" }],
+    ["programme", programme.id, { name: "Changed", centre: "Centre A" }],
+    [
+      "grant",
+      grant.id,
+      { personId: owner.id, scheme: "HCG", status: "Approved" },
+    ],
+    ["alertStatus", otherAlert.id, { status: "Completed" }],
+    ["snooze", otherAlert.id, { date: "2099-01-01" }],
+    [
+      "relationship",
+      undefined,
+      { memberId: owner.id, recipientId: recipient.id, relationship: "Mother" },
+    ],
+    [
+      "participation",
+      undefined,
+      { personId: owner.id, programmeId: programme.id, status: "Registered" },
+    ],
+  ] as const) {
+    const denied = await context.request.post("/api/action", {
+      headers,
+      data: { action, id, data },
+    });
+    expect(denied.status(), action).toBe(403);
+  }
+  const extraction = await context.request.post("/api/support-extraction", {
+    headers,
+    data: {
+      action: "commit",
+      selections: [
+        { personId: outside.id, version: outside.updatedAt, scheme: "HCG" },
+      ],
+    },
+  });
+  expect(extraction.status()).toBe(403);
+  const preview = await context.request.post("/api/import", {
+    headers,
+    data: {
+      action: "preview",
+      filename: "restricted.xlsx",
+      mapping: {
+        "Member ID": "Member ID",
+        "Centre (as client)": "Centre (as client)",
+      },
+      rawRows: [
+        { "Member ID": "OUTSIDE-FAKE", "Centre (as client)": "Centre A" },
+      ],
+    },
+  });
+  const previewRow = (await preview.json()).rows[0];
+  expect(previewRow.action).toBe("Skip");
+  expect(previewRow.existing).toBeUndefined();
+  expect(previewRow.errors).toContain(
+    "Row is outside your authorised centres.",
+  );
+  const table = await (
+    await context.request.get(
+      "/api/people?kind=Member&centre=Centre%20A&size=20",
+    )
+  ).json();
+  expect(table.total).toBe(1);
+  expect(table.people[0].id).toBe(owner.id);
+  const beyondLastPage = await (
+    await context.request.get(
+      "/api/people?kind=Member&centre=Centre%20A&size=20&page=9999",
+    )
+  ).json();
+  expect(beyondLastPage.page).toBe(1);
+  expect(beyondLastPage.people[0].id).toBe(owner.id);
+  const lean = await (
+    await context.request.get("/api/data?section=members")
+  ).json();
+  expect(lean.people).toEqual([]);
+  expect(lean.grants).toEqual([]);
+  await page.goto(`/people/${outside.id}`);
+  await expect(
+    page.getByText("Record not found.", { exact: false }),
+  ).toBeVisible();
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "fake.admin", password },
+  });
+  await page.goto("/import");
+  await expect(
+    page.getByRole("heading", { name: "Import history", exact: true }),
+  ).toBeVisible();
+  expect(
+    (await (await context.request.get("/api/import-history")).json()).batches
+      .length,
+  ).toBeGreaterThan(0);
+});
+
+test("bulk import review, field decisions and audited import history", async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: "http://127.0.0.1:3100" };
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "fake.admin", password },
+  });
+  const workbook = new ExcelJS.Workbook(),
+    sheet = workbook.addWorksheet("Members");
+  sheet.addRow([
+    "Member ID",
+    "Centre (as client)",
+    "Language spoken / understood",
+    "Interest",
+  ]);
+  sheet.addRow([
+    "OWNER-FAKE",
+    "Replacement Centre",
+    "English, Mandarin",
+    "Walking; Music",
+  ]);
+  sheet.addRow(["BULK-FAKE-A", "Centre A", "English", "Music"]);
+  sheet.addRow(["", "Centre A", "English", "Music"]);
+  sheet.addRow(["BULK-DUP", "Centre A"]);
+  sheet.addRow(["BULK-DUP", "Centre A"]);
+  await page.goto("/import");
+  await page.getByLabel("Excel workbook", { exact: true }).setInputFiles({
+    name: "fictional-bulk.xlsx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+  });
+  await page
+    .getByRole("button", { name: "Parse and preview", exact: true })
+    .click();
+  await page.getByRole("button", { name: /^Errors \d+$/ }).click();
+  await expect(page.getByLabel(/^Action for row /)).toHaveCount(3);
+  await page.getByRole("button", { name: /^All \d+$/ }).click();
+  await page
+    .getByRole("button", { name: "Import all valid new records", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Skip all errors", exact: true })
+    .click();
+  await expect(
+    page.getByLabel("Action for row 3", { exact: true }),
+  ).toHaveValue("Import");
+  const existing = page.getByRole("row").filter({ hasText: "OWNER-FAKE" });
+  await existing.getByText("Compare changed fields", { exact: true }).click();
+  const centre = existing
+    .locator(".comparison tbody tr")
+    .filter({ hasText: "Replacement Centre" });
+  await centre
+    .getByRole("button", { name: "Keep Current", exact: true })
+    .click();
+  await expect(centre).toContainText("Reviewed: Centre A");
+  await page.getByLabel("Select row 2", { exact: true }).check();
+  page.once("dialog", (d) => d.accept());
+  await page
+    .getByRole("button", {
+      name: "Update selected existing records",
+      exact: true,
+    })
+    .click();
+  page.once("dialog", (d) => d.accept());
+  await page
+    .getByRole("button", { name: "Confirm import", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Import saved", exact: true }),
+  ).toBeVisible();
+  const snapshot = await (await context.request.get("/api/data")).json();
+  const owner = snapshot.people.find(
+    (p: { memberId: string }) => p.memberId === "OWNER-FAKE",
+  );
+  expect(owner.centre).toBe("Centre A");
+  expect(
+    owner.languages
+      .map((l: { language: { name: string } }) => l.language.name)
+      .sort(),
+  ).toEqual(["English", "Mandarin"]);
+  const batches = (
+    await (await context.request.get("/api/import-history")).json()
+  ).batches;
+  const batch = batches.find(
+    (b: { filename: string }) => b.filename === "fictional-bulk.xlsx",
+  );
+  expect(batch.createdCount).toBe(1);
+  expect(batch.updatedCount).toBe(1);
+  expect(batch.skippedCount).toBe(3);
+  expect(batch.errorCount).toBe(3);
+  await page.reload();
+  await page
+    .getByRole("row")
+    .filter({ hasText: "fictional-bulk.xlsx" })
+    .getByRole("button", { name: "Inspect import", exact: true })
+    .click();
+  await expect(
+    page.getByRole("dialog").getByText("OWNER-FAKE", { exact: true }),
+  ).toBeVisible();
+});
+
+test("unsaved edits stay open on cancelled discard and search supports keyboard navigation", async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: "http://127.0.0.1:3100" };
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "fake.admin", password },
+  });
+  await page.goto("/members?q=OWNER-FAKE");
+  const row = page.getByRole("row").filter({ hasText: "OWNER-FAKE" });
+  await row.locator(".action-menu summary").click();
+  await row.getByRole("button", { name: "Edit", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByLabel("Name", { exact: true })
+    .fill("Discard this fictional edit");
+  page.once("dialog", (d) => d.dismiss());
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("dialog").press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(row).toContainText("Fictional Owned Case");
+  await page.getByLabel("Global search", { exact: true }).fill("OWNER-FAKE");
+  await expect(
+    page.getByRole("option", { name: /Fictional Owned Case/ }),
+  ).toBeVisible();
+  await page.getByLabel("Global search", { exact: true }).press("ArrowDown");
+  await page.getByLabel("Global search", { exact: true }).press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Fictional Owned Case", exact: true }),
+  ).toBeVisible();
+});
+
+test("restricted manager and read-only accounts have scoped server access", async ({
+  context,
+}) => {
+  const headers = { Origin: "http://127.0.0.1:3100" };
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "fake.admin", password },
+  });
+  for (const [username, role] of [
+    ["scoped.manager", "Manager"],
+    ["scoped.reader", "Read Only"],
+  ]) {
+    const created = await context.request.post("/api/action", {
+      headers,
+      data: {
+        action: "user",
+        data: {
+          username,
+          name: `Fictional ${role}`,
+          password,
+          role,
+          allCentres: "Selected centres",
+          centres: "Centre A",
+        },
+      },
+    });
+    expect(created.ok()).toBe(true);
+  }
+  const adminData = await (await context.request.get("/api/data")).json();
+  const outside = adminData.people.find(
+    (p: { memberId: string }) => p.memberId === "OUTSIDE-FAKE",
+  );
+  for (const username of ["scoped.manager", "scoped.reader"]) {
+    await context.request.post("/api/auth", {
+      headers,
+      data: { action: "login", username, password },
+    });
+    const data = await (await context.request.get("/api/data")).json();
+    expect(
+      data.people.every((p: { centre: string }) => p.centre === "Centre A"),
+    ).toBe(true);
+    expect(data.people.length).toBeGreaterThan(0);
+    if (username === "scoped.manager") {
+      expect(data.audit.length).toBeGreaterThan(0);
+      expect(
+        data.audit.some((a: { entityId: string }) => a.entityId === outside.id),
+      ).toBe(false);
+    } else expect(data.audit).toEqual([]);
+    const denied = await context.request.post("/api/action", {
+      headers,
+      data: { action: "archive", id: outside.id, data: { type: "person" } },
+    });
+    expect(denied.status()).toBe(403);
+    const adminOnly = await context.request.post("/api/action", {
+      headers,
+      data: {
+        action: "userAccess",
+        id: outside.id,
+        data: { allCentres: "All centres", centres: "" },
+      },
+    });
+    expect(adminOnly.status()).toBe(403);
+  }
 });

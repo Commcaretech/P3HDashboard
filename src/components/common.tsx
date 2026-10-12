@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Person, Programme } from "@/lib/types";
 import { Field } from "./ui";
@@ -60,6 +61,7 @@ export function FilterBar({
   onChange: (v: Filters) => void;
   options: { key: string; label: string; values: string[] }[];
 }) {
+  const [expanded, setExpanded] = useState(false);
   return (
     <form className="filters" onSubmit={(e) => e.preventDefault()}>
       <label className="filter-search">
@@ -71,21 +73,46 @@ export function FilterBar({
           placeholder="ID, name, notes or category"
         />
       </label>
-      {options.map((o) => (
-        <label key={o.key}>
-          {o.label}
-          <select
-            aria-label={o.label}
-            value={values[o.key] ?? ""}
-            onChange={(e) => onChange({ ...values, [o.key]: e.target.value })}
-          >
-            <option value="">All</option>
-            {[...new Set(o.values.filter(Boolean))].sort().map((v) => (
-              <option key={v}>{v}</option>
-            ))}
-          </select>
-        </label>
-      ))}
+      <button
+        className="secondary"
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded(!expanded)}
+      >
+        Filters
+      </button>
+      <div className="filter-options" hidden={!expanded}>
+        {options.map((o) => (
+          <label key={o.key}>
+            {o.label}
+            <select
+              aria-label={o.label}
+              value={values[o.key] ?? ""}
+              onChange={(e) => onChange({ ...values, [o.key]: e.target.value })}
+            >
+              <option value="">All</option>
+              {[...new Set(o.values.filter(Boolean))].sort().map((v) => (
+                <option key={v}>{v}</option>
+              ))}
+            </select>
+          </label>
+        ))}
+      </div>
+      <div className="chips">
+        {options
+          .filter((o) => values[o.key])
+          .map((o) => (
+            <button
+              key={o.key}
+              type="button"
+              className="filter-chip"
+              aria-label={`Remove ${o.label} filter`}
+              onClick={() => onChange({ ...values, [o.key]: "" })}
+            >
+              {o.label}: {values[o.key]} ×
+            </button>
+          ))}
+      </div>
       <button className="secondary" type="button" onClick={() => onChange({})}>
         Clear Filters
       </button>

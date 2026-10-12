@@ -95,16 +95,22 @@ export default function Programmes({
               <p>Interests: {names(p).interests.join(", ") || "—"}</p>
               <p>
                 Capacity: {p.capacity || "Unspecified"} · Enrolled:{" "}
-                {
+                {p.registeredCount ??
                   p.participations.filter((x) => x.status === "Registered")
-                    .length
-                }
+                    .length}
               </p>
               <p>{p.notes}</p>
             </details>,
             `${p.day} ${p.startTime}–${p.endTime} · ${p.frequency} · ${p.venue}`,
             `${names(p).languages.join(", ")} · ${names(p).conditions.join(", ")} · ${p.mobility}`,
-            p.registrationStatus,
+            <Badge key="registration">
+              {p.capacity > 0 &&
+              (p.registeredCount ??
+                p.participations.filter((x) => x.status === "Registered")
+                  .length) >= p.capacity
+                ? "Full"
+                : p.registrationStatus}
+            </Badge>,
             <Badge key="status">{p.status}</Badge>,
             write ? (
               <div className="row-actions" key="actions">

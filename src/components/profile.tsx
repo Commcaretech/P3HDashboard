@@ -3,6 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Data, Person, Grant, label, day } from "@/lib/types";
 import { Table, Badge, PersonLink } from "./ui";
+import { completeness, alertDue } from "@/lib/workflow";
 import { names, Editing } from "./common";
 export default function Profile({
   d,
@@ -38,17 +39,106 @@ export default function Profile({
   const links = [...p.caregiverLinks, ...p.recipientLinks];
   const relatedGrants = d.grants.filter((g) => g.personId === p.id),
     alerts = d.alerts.filter((a) => a.personId === p.id);
+  const recipients = p.caregiverLinks
+    .map((l) => d.people.find((r) => r.id === l.recipientId))
+    .filter((r): r is Person => Boolean(r));
+  const progress = completeness(p, recipients);
+  const next = alerts
+    .filter((a) => a.status === "Pending")
+    .sort((a, b) => alertDue(a).localeCompare(alertDue(b)))[0];
   return (
     <>
-      <div className="profile-head">
+      <div className="profile-head panel">
         <div>
           <h2>{label(p)}</h2>
           <p>
             {p.kind} · {p.memberId ?? p.alias} · <Badge>{p.status}</Badge>
           </p>
         </div>
+        <div>
+          <strong>{p.centre || "Centre not recorded"}</strong>
+          <small>
+            {p.preferredLanguage ||
+              names(p).languages.join(", ") ||
+              "Language not recorded"}
+          </small>
+          <small>
+            {p.kind === "Member"
+              ? `P3H since ${day(p.onboardingDate)}`
+              : p.mobility || "Mobility not recorded"}
+          </small>
+        </div>
+        <div>
+          <small>Assigned staff</small>
+          <strong>{p.assigned?.name ?? "Unassigned"}</strong>
+          <small>{p.primaryCondition || names(p).conditions.join(", ")}</small>
+        </div>
         {write && <button onClick={() => onEdit(p)}>Edit profile</button>}
       </div>
+      <section className="panel relationship-summary">
+        <small>
+          {p.kind === "Member" ? "Care recipients" : "Linked caregivers"}
+        </small>
+        {links.length ? (
+          links.map((l) => {
+            const related = d.people.find(
+              (x) =>
+                x.id === (p.kind === "Member" ? l.recipientId : l.memberId),
+            );
+            return (
+              related && (
+                <p key={l.id}>
+                  <PersonLink id={related.id}>{label(related)}</PersonLink> ·{" "}
+                  {l.relationship}
+                  {p.kind === "Member" &&
+                    ` · ${names(related).conditions.join(", ") || "Conditions not recorded"}`}
+                </p>
+              )
+            );
+          })
+        ) : (
+          <p>No care relationships recorded.</p>
+        )}
+      </section>
+      <section className="panel profile-summary">
+        <div>
+          <small>Next action</small>
+          {next ? (
+            <Link href={`/alerts?q=${encodeURIComponent(next.title)}`}>
+              {next.title}
+              <small>{day(alertDue(next))}</small>
+            </Link>
+          ) : (
+            "No pending action"
+          )}
+        </div>
+        <div>
+          <small>Outstanding alerts</small>
+          <strong>{alerts.filter((a) => a.status === "Pending").length}</strong>
+        </div>
+        <div>
+          <small>Support schemes</small>
+          {relatedGrants.map((g) => g.scheme.name).join(", ") ||
+            "None recorded"}
+          <small>
+            {p.participations.length} programme participation records
+          </small>
+        </div>
+        <div>
+          <small>Profile completeness</small>
+          <strong>{progress.score}%</strong>
+          <progress
+            value={progress.score}
+            max={100}
+            aria-label="Profile completeness"
+          />
+          <small>
+            {progress.missing.length
+              ? `Missing: ${progress.missing.join(", ")}`
+              : "Matching information recorded"}
+          </small>
+        </div>
+      </section>
       <div className="tabs">
         {[
           "Overview",

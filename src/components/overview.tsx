@@ -1,8 +1,10 @@
 "use client";
+import { Bell, CalendarDays, AlertTriangle, Cake } from "lucide-react";
+import { alertDue, alertGroup, alertGroups } from "@/lib/workflow";
 import Link from "next/link";
 import { Data, label, day } from "@/lib/types";
 import { birthday, today } from "@/lib/domain";
-import { Table, Badge, PersonLink } from "./ui";
+import { Badge, PersonLink } from "./ui";
 import { Chart } from "./charts";
 import { count } from "./common";
 export default function Overview({ d }: { d: Data }) {
@@ -56,6 +58,102 @@ export default function Overview({ d }: { d: Data }) {
   ];
   return (
     <>
+      <div className="stat-grid action-metrics">
+        {[
+          {
+            name: "Pending Alerts",
+            n: pending.length,
+            detail: "Outstanding actions",
+            href: "/alerts?status=Pending",
+            Icon: Bell,
+          },
+          {
+            name: "Due Today",
+            n: pending.filter((a) => alertGroup(a) === "Today").length,
+            detail: "Actions scheduled today",
+            href: "/alerts?time=Today",
+            Icon: CalendarDays,
+          },
+          {
+            name: "Overdue",
+            n: pending.filter((a) => alertGroup(a) === "Overdue").length,
+            detail: "Follow up as soon as possible",
+            href: "/alerts?time=Overdue",
+            Icon: AlertTriangle,
+          },
+          {
+            name: "Birthdays This Month",
+            n: d.people.filter(
+              (p) =>
+                p.status === "Active" &&
+                p.dob &&
+                p.dob.slice(5, 7) === today().slice(5, 7),
+            ).length,
+            detail: "Active people with a birthday this month",
+            href: "/reports?view=birthdays&birthdayMonth=current",
+            Icon: Cake,
+          },
+        ].map((c) => (
+          <Link key={c.name} className="stat" href={c.href}>
+            <div className="metric-label">
+              <small>{c.name}</small>
+              <c.Icon size={20} />
+            </div>
+            <strong>{c.n}</strong>
+            <span>{c.detail}</span>
+          </Link>
+        ))}
+      </div>
+      <section className="panel attention">
+        <div className="section-head">
+          <h2>Needs attention</h2>
+          <Link href="/alerts">View all alerts →</Link>
+        </div>
+        {!pending.length && (
+          <p className="empty">
+            No outstanding alerts. Your team is up to date.
+          </p>
+        )}
+        {alertGroups.slice(0, 4).map((group) => {
+          const items = pending
+            .filter((a) => alertGroup(a) === group)
+            .sort((a, b) => alertDue(a).localeCompare(alertDue(b)));
+          return (
+            items.length > 0 && (
+              <div key={group} className="attention-group">
+                <h3>
+                  <Badge>{group}</Badge> <small>{items.length} actions</small>
+                </h3>
+                {items.slice(0, 5).map((a) => (
+                  <div key={a.id} className="attention-item">
+                    <div>
+                      <Link href={`/alerts?q=${encodeURIComponent(a.title)}`}>
+                        {a.title}
+                      </Link>
+                      {a.personId && (
+                        <small>
+                          <PersonLink id={a.personId}>
+                            {label(d.people.find((p) => p.id === a.personId)!)}
+                          </PersonLink>
+                        </small>
+                      )}
+                    </div>
+                    <span>
+                      {day(alertDue(a))}
+                      <small>{a.assigned?.name ?? "Unassigned"}</small>
+                    </span>
+                    <Badge>{a.priority}</Badge>
+                  </div>
+                ))}
+              </div>
+            )
+          );
+        })}
+      </section>
+      <div className="section-head">
+        <h2>Caseload and support</h2>
+        <Link href="/reports">Explore reports →</Link>
+      </div>
       <div className="stat-grid">
         {cards.map(([name, n, url]) => (
           <Link className="stat" key={name} href={String(url)}>
@@ -65,34 +163,9 @@ export default function Overview({ d }: { d: Data }) {
           </Link>
         ))}
       </div>
-      <div className="section-head">
-        <h2>Upcoming actions</h2>
-        <Link href="/alerts">View all alerts →</Link>
-      </div>
-      <Table
-        headers={["Action", "Person", "Due date", "Priority", "Status"]}
-        rows={pending.slice(0, 10).map((a) => ({
-          id: a.id,
-          sort: a.dueDate,
-          cells: [
-            <Link key="a" href="/alerts">
-              {a.title}
-            </Link>,
-            a.personId ? (
-              <PersonLink key="p" id={a.personId}>
-                {label(d.people.find((p) => p.id === a.personId)!)}
-              </PersonLink>
-            ) : (
-              "—"
-            ),
-            day(a.dueDate),
-            <Badge key="priority">{a.priority}</Badge>,
-            a.status,
-          ],
-        }))}
-      />
       <div className="chart-grid">
         <Chart
+          horizontal
           title="Care recipients by condition"
           href="/care-recipients"
           values={count(
@@ -102,26 +175,13 @@ export default function Overview({ d }: { d: Data }) {
           )}
         />
         <Chart
+          horizontal
           title="Language distribution"
           href="/members"
           values={count(
             d.people
               .filter((p) => p.status === "Active")
               .flatMap((p) => p.languages.map((x) => x.language.name)),
-          )}
-        />
-        <Chart
-          title="Member interests"
-          href="/members"
-          values={count(
-            members.flatMap((p) => p.interests.map((x) => x.interest.name)),
-          )}
-        />
-        <Chart
-          title="Care recipient interests"
-          href="/care-recipients"
-          values={count(
-            recipients.flatMap((p) => p.interests.map((x) => x.interest.name)),
           )}
         />
         <Chart
@@ -136,7 +196,7 @@ export default function Overview({ d }: { d: Data }) {
             members.flatMap((p) =>
               p.onboardingDate ? [p.onboardingDate.slice(0, 7)] : [],
             ),
-          )}
+          ).sort((a, b) => a.name.localeCompare(b.name))}
         />
       </div>
     </>

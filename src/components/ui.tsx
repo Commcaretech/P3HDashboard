@@ -1,11 +1,19 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { Children, isValidElement } from "react";
 export type Field = {
   key: string;
   label: string;
   type?:
-    "text" | "date" | "time" | "number" | "password" | "textarea" | "select";
+    | "text"
+    | "date"
+    | "time"
+    | "number"
+    | "password"
+    | "textarea"
+    | "select"
+    | "chips";
   options?: { value: string; label: string }[];
   required?: boolean;
   section?: string;
@@ -27,7 +35,14 @@ export function Modal({
     return () => d?.close();
   }, []);
   return (
-    <dialog ref={ref} onCancel={onClose} aria-labelledby="dialog-title">
+    <dialog
+      ref={ref}
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+      aria-labelledby="dialog-title"
+    >
       <div className="dialog-head">
         <h2 id="dialog-title">{title}</h2>
         <button
@@ -66,8 +81,22 @@ export function Editor({
     [error, setError] = useState(""),
     [tab, setTab] = useState(fields[0]?.section ?? "Details");
   const sections = [...new Set(fields.map((f) => f.section ?? "Details"))];
+  const dirty = fields.some(
+    (f) => values[f.key] !== String(initial[f.key] ?? ""),
+  );
+  const close = () => {
+    if (!busy && (!dirty || window.confirm("Discard unsaved changes?")))
+      onClose();
+  };
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => {
+      if (dirty) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
   return (
-    <Modal title={title} onClose={onClose}>
+    <Modal title={title} onClose={close}>
       <form
         onSubmit={async (e) => {
           e.preventDefault();
@@ -80,6 +109,14 @@ export function Editor({
             )
           )
             return;
+          const invalid = fields.find(
+            (f) => f.required && !values[f.key]?.trim(),
+          );
+          if (invalid) {
+            setTab(invalid.section ?? "Details");
+            setError(`${invalid.label} is required.`);
+            return;
+          }
           setBusy(true);
           setError("");
           try {
@@ -121,7 +158,14 @@ export function Editor({
             >
               {f.label}
               {f.required ? " *" : ""}
-              {f.type === "textarea" ? (
+              {f.type === "chips" ? (
+                <ChipInput
+                  label={f.label}
+                  value={values[f.key]}
+                  options={f.options ?? []}
+                  onChange={(v) => setValues({ ...values, [f.key]: v })}
+                />
+              ) : f.type === "textarea" ? (
                 <textarea
                   aria-label={f.label}
                   aria-required={f.required}
@@ -154,11 +198,19 @@ export function Editor({
                   step={f.type === "number" ? "any" : undefined}
                   value={values[f.key]}
                   maxLength={f.type === "text" || !f.type ? 12000 : undefined}
+                  list={f.options ? `field-${f.key}` : undefined}
                   onChange={(e) =>
                     setValues({ ...values, [f.key]: e.target.value })
                   }
                 />
               )}{" "}
+              {f.type !== "select" && f.type !== "chips" && f.options && (
+                <datalist id={`field-${f.key}`}>
+                  {f.options.map((o) => (
+                    <option key={o.value} value={o.value} />
+                  ))}
+                </datalist>
+              )}
               {f.hint && <small>{f.hint}</small>}
             </label>
           ))}
@@ -169,7 +221,7 @@ export function Editor({
         </p>
         <div className="actions">
           <button disabled={busy}>{busy ? "Saving…" : "Save record"}</button>
-          <button type="button" className="secondary" onClick={onClose}>
+          <button type="button" className="secondary" onClick={close}>
             Cancel
           </button>
         </div>
@@ -178,17 +230,195 @@ export function Editor({
   );
 }
 export function Badge({ children }: { children: React.ReactNode }) {
-  return <span className="badge">{children}</span>;
+  const text = String(children).toLowerCase();
+  const tone = /overdue|expired|rejected|high|not recommended/.test(text)
+    ? "danger"
+    : /pending|waitlist|review|low confidence|due soon/.test(text)
+      ? "warning"
+      : /inactive|archived|dismissed|closed|unassigned/.test(text)
+        ? "neutral"
+        : /submitted|scheduled|receiv|recorded|registered/.test(text)
+          ? "info"
+          : "success";
+  return <span className={`badge ${tone}`}>{children}</span>;
 }
-export type Row = { id: string; cells: React.ReactNode[]; sort?: string };
-export function Table({ headers, rows }: { headers: string[]; rows: Row[] }) {
-  const [page, setPage] = useState(1),
-    [direction, setDirection] = useState(1);
-  const sorted = [...rows].sort(
-    (a, b) => (a.sort ?? a.id).localeCompare(b.sort ?? b.id) * direction,
+export function ChipInput({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (v: string) => void;
+}) {
+  const tokens = value
+    .split(/[,;\n]/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const id = `choices-${label.replace(/[^a-z0-9]/gi, "-")}`;
+  const [showChoices, setShowChoices] = useState(false);
+  const query =
+    value
+      .split(/[,;\n]/)
+      .at(-1)
+      ?.trim()
+      .toLowerCase() ?? "";
+  const choices = options
+    .filter(
+      (o) =>
+        !tokens.some((t) => t.toLowerCase() === o.value.toLowerCase()) &&
+        (!query || o.label.toLowerCase().includes(query)),
+    )
+    .slice(0, 10);
+  return (
+    <div className="chip-input">
+      <input
+        aria-label={label}
+        value={value}
+        list={id}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setShowChoices(true)}
+        placeholder="Search or add categories, separated by commas"
+      />
+      <datalist id={id}>
+        {options.map((o) => (
+          <option key={o.value} value={o.value} />
+        ))}
+      </datalist>
+      <div className="chips">
+        {tokens.map((t, i) => (
+          <button
+            key={`${t}-${i}`}
+            type="button"
+            className="filter-chip"
+            aria-label={`Remove ${t}`}
+            onClick={() =>
+              onChange(tokens.filter((_, j) => j !== i).join(", "))
+            }
+          >
+            {t} ×
+          </button>
+        ))}
+      </div>
+      {showChoices && choices.length > 0 && (
+        <div className="category-choices">
+          <small>Select a category</small>
+          {choices.map((o) => (
+            <button
+              type="button"
+              key={o.value}
+              className="secondary"
+              onClick={() => {
+                const parts = value
+                  .split(/[,;\n]/)
+                  .map((t) => t.trim())
+                  .filter(Boolean);
+                if (
+                  query &&
+                  o.label.toLowerCase().includes(query) &&
+                  !options.some((x) => x.value.toLowerCase() === query)
+                )
+                  parts.pop();
+                onChange([...new Set([...parts, o.value])].join(", "));
+                setShowChoices(false);
+              }}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
-  const pages = Math.max(1, Math.ceil(rows.length / 20));
-  const active = Math.min(page, pages);
+}
+export function ActionMenu({
+  children,
+  label = "Record actions",
+}: {
+  children: React.ReactNode;
+  label?: string;
+}) {
+  return (
+    <details className="action-menu">
+      <summary aria-label={label}>•••</summary>
+      <div>{children}</div>
+    </details>
+  );
+}
+export function LoadingSkeleton() {
+  return (
+    <div role="status" aria-label="Loading records">
+      <div className="stat-grid">
+        {[1, 2, 3, 4].map((i) => (
+          <div className="skeleton" key={i} />
+        ))}
+      </div>
+      <div className="skeleton skeleton-table" />
+    </div>
+  );
+}
+export type Row = {
+  id: string;
+  cells: React.ReactNode[];
+  sort?: string;
+  sortValues?: (string | number)[];
+};
+function cellText(node: React.ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (isValidElement<{ children?: React.ReactNode }>(node))
+    return cellText(node.props.children);
+  return Children.toArray(node)
+    .map((n) =>
+      isValidElement<{ children?: React.ReactNode }>(n)
+        ? cellText(n.props.children)
+        : String(n ?? ""),
+    )
+    .join(" ");
+}
+export type ServerTable = {
+  total: number;
+  page: number;
+  size: number;
+  onPage: (n: number) => void;
+  onSize: (n: number) => void;
+  onSort: (column: number, direction: number) => void;
+  sortableColumns?: number[];
+};
+export function Table({
+  headers,
+  rows,
+  server,
+}: {
+  headers: string[];
+  rows: Row[];
+  server?: ServerTable;
+}) {
+  const [page, setPage] = useState(1),
+    [size, setSize] = useState(20),
+    [column, setColumn] = useState(-1),
+    [direction, setDirection] = useState(1);
+  const sorted = server
+    ? rows
+    : [...rows].sort((a, b) => {
+        const av =
+          column < 0
+            ? (a.sort ?? a.id)
+            : (a.sortValues?.[column] ?? cellText(a.cells[column]));
+        const bv =
+          column < 0
+            ? (b.sort ?? b.id)
+            : (b.sortValues?.[column] ?? cellText(b.cells[column]));
+        return (
+          String(av).localeCompare(String(bv), undefined, { numeric: true }) *
+          direction
+        );
+      });
+  const effectiveSize = server?.size ?? size;
+  const total = server?.total ?? rows.length;
+  const pages = Math.max(1, Math.ceil(total / effectiveSize)),
+    active = Math.min(server?.page ?? page, pages);
   return (
     <>
       <div className="table-scroll">
@@ -196,23 +426,42 @@ export function Table({ headers, rows }: { headers: string[]; rows: Row[] }) {
           <thead>
             <tr>
               {headers.map((h, i) => (
-                <th key={h}>
-                  {i === 0 ? (
+                <th
+                  key={h}
+                  aria-sort={
+                    column === i
+                      ? direction === 1
+                        ? "ascending"
+                        : "descending"
+                      : "none"
+                  }
+                >
+                  {/action/i.test(h) ||
+                  (server?.sortableColumns &&
+                    !server.sortableColumns.includes(i)) ? (
+                    h
+                  ) : (
                     <button
                       className="sort"
-                      onClick={() => setDirection(-direction)}
+                      onClick={() => {
+                        setColumn(i);
+                        setDirection(column === i ? -direction : 1);
+                        setPage(1);
+                        server?.onSort(i, column === i ? -direction : 1);
+                      }}
                     >
-                      {h} {direction === 1 ? "↑" : "↓"}
+                      {h} {column === i ? (direction === 1 ? "↑" : "↓") : "↕"}
                     </button>
-                  ) : (
-                    h
                   )}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {sorted.slice((active - 1) * 20, active * 20).map((r) => (
+            {(server
+              ? sorted
+              : sorted.slice((active - 1) * size, active * size)
+            ).map((r) => (
               <tr key={r.id}>
                 {r.cells.map((c, i) => (
                   <td key={i}>{c}</td>
@@ -229,20 +478,40 @@ export function Table({ headers, rows }: { headers: string[]; rows: Row[] }) {
       </div>
       <div className="pagination">
         <span>
-          {rows.length} results · Page {active} of {pages}
+          {total} results · Page {active} of {pages}
         </span>
+        <label>
+          Rows per page
+          <select
+            aria-label="Rows per page"
+            value={effectiveSize}
+            onChange={(e) => {
+              setSize(Number(e.target.value));
+              setPage(1);
+              server?.onSize(Number(e.target.value));
+            }}
+          >
+            {[20, 50, 100].map((n) => (
+              <option key={n}>{n}</option>
+            ))}
+          </select>
+        </label>
         <div>
           <button
             className="secondary"
             disabled={active === 1}
-            onClick={() => setPage(active - 1)}
+            onClick={() =>
+              server ? server.onPage(active - 1) : setPage(active - 1)
+            }
           >
             Previous
           </button>{" "}
           <button
             className="secondary"
             disabled={active === pages}
-            onClick={() => setPage(active + 1)}
+            onClick={() =>
+              server ? server.onPage(active + 1) : setPage(active + 1)
+            }
           >
             Next
           </button>

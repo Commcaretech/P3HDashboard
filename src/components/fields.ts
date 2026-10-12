@@ -101,6 +101,7 @@ export function personFields(kind: string): Field[] {
 }
 export const personValues = (p: Person) => ({
   ...p,
+  assignedId: p.assignedId ?? "",
   dob: p.dob?.slice(0, 10) ?? "",
   onboardingDate: p.onboardingDate?.slice(0, 10) ?? "",
   languages: p.languages
@@ -131,7 +132,9 @@ export const programmeFields: Field[] = [
   {
     key: "mobility",
     label: "Suitable mobility levels",
-    hint: "Comma-separated levels, or All",
+    type: "chips",
+    options: opts(["Independent", "Assisted", "Wheelchair friendly", "All"]),
+    hint: "Select supported levels; All means all mobility levels",
   },
   {
     key: "day",
@@ -150,7 +153,11 @@ export const programmeFields: Field[] = [
   },
   { key: "startTime", label: "Start time", type: "time" },
   { key: "endTime", label: "End time", type: "time" },
-  { key: "frequency", label: "Frequency" },
+  {
+    key: "frequency",
+    label: "Frequency",
+    options: opts(["Weekly", "Fortnightly", "Monthly", "One-off", "Custom"]),
+  },
   { key: "capacity", label: "Capacity (0 = unspecified)", type: "number" },
   {
     key: "registrationStatus",
@@ -300,4 +307,16 @@ export const userFields: Field[] = [
     required: true,
   },
   { key: "role", label: "Role", type: "select", options: opts(roles) },
+  {
+    key: "allCentres",
+    label: "Centre access",
+    type: "select",
+    options: opts(["Selected centres", "All centres"]),
+  },
+  {
+    key: "centres",
+    label: "Allowed centres",
+    type: "chips",
+    hint: "Enter exact centre names. Required for selected-centre access.",
+  },
 ];

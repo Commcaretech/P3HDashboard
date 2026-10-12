@@ -108,6 +108,7 @@ const date = z
   .default("");
 export const personSchema = z
   .object({
+    assignedId: text,
     kind: z.enum(["Member", "Care Recipient"]),
     memberId: z.string().trim().max(100).default(""),
     name: text,
@@ -252,74 +253,5 @@ export function birthday(dob: Date, now: string) {
     ),
   };
 }
-export type MatchPerson = {
-  languages: string[];
-  interests: string[];
-  conditions: string[];
-  mobility: string;
-};
-export type MatchProgramme = MatchPerson;
-export const weights = {
-  condition: 35,
-  language: 25,
-  memberInterest: 15,
-  recipientInterest: 15,
-  mobility: 10,
-};
-export function match(
-  member: MatchPerson,
-  recipient: MatchPerson | undefined,
-  p: MatchProgramme,
-) {
-  let score = 0;
-  const reasons: string[] = [];
-  const intersect = (a: string[], b: string[]) =>
-    a.filter((x) => b.some((y) => y.toLowerCase() === x.toLowerCase()));
-  const award = (a: string[], b: string[], points: number, label: string) => {
-    const hit = intersect(a, b);
-    if (hit.length) {
-      score += points;
-      reasons.push(`${label}: ${hit.join(", ")} (+${points}%)`);
-    } else
-      reasons.push(
-        `${label}: ${a.length ? "no match" : "information missing"} (+0%)`,
-      );
-  };
-  award(
-    recipient?.conditions ?? [],
-    p.conditions,
-    weights.condition,
-    "Care recipient conditions",
-  );
-  award(
-    recipient?.languages.length ? recipient.languages : member.languages,
-    p.languages,
-    weights.language,
-    "Language",
-  );
-  award(
-    member.interests,
-    p.interests,
-    weights.memberInterest,
-    "Member interests",
-  );
-  award(
-    recipient?.interests ?? [],
-    p.interests,
-    weights.recipientInterest,
-    "Care recipient interests",
-  );
-  const mobile = Boolean(
-    recipient?.mobility &&
-    p.mobility &&
-    (categories(p.mobility).some(
-      (x) => x.toLowerCase() === recipient.mobility.toLowerCase(),
-    ) ||
-      p.mobility.toLowerCase() === "all"),
-  );
-  if (mobile) score += weights.mobility;
-  reasons.push(
-    `Mobility: ${mobile ? "suitable (+10%)" : recipient?.mobility ? "suitability not established (+0%)" : "information missing (+0%)"}`,
-  );
-  return { score, reasons };
-}
+export { match, weights } from "./matching";
+export type { MatchPerson, MatchProgramme } from "./matching";

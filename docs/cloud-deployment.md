@@ -118,3 +118,8 @@ References: [Render free restrictions](https://render.com/docs/free), [Supabase 
 | Migration fails | Do not reset the database. Capture the error code without credentials and resolve it before retrying. |
 
 For future model changes, update both Prisma schemas and create a PostgreSQL migration in `prisma/cloud/migrations` as well as the local SQLite migration. Never run `prisma db push` or reset against the operational database as a deployment shortcut.
+
+
+## Updating the staff workspace
+
+Publish the updated source, including both schemas and `prisma/cloud/migrations/202610120002_staff_workflows/migration.sql`, then redeploy using the existing cloud commands. `cloud:start` applies additive migrations before starting. Do not reset Supabase or run local SQLite migrations against it. Existing staff accounts keep their prior access; review centre scopes under Settings after deployment. See [staff workflows](staff-workflows.md) for the new screens and access rules.

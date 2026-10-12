@@ -1,4 +1,5 @@
 "use client";
+import { bulkReview, reviewCategory } from "@/lib/import-review";
 import { useState } from "react";
 import Link from "next/link";
 import type { ImportRow } from "@/lib/importer";
@@ -6,6 +7,7 @@ import { columns } from "@/lib/import-fields";
 import { supportFromNotes } from "@/lib/support-notes";
 import { Table, Editor, Badge } from "./ui";
 type ReviewRow = ImportRow & {
+  excel?: Record<string, string>;
   confirmedRecipient?: boolean;
   recipientName?: string;
   recipientRelationship?: string;
@@ -43,6 +45,8 @@ export default function ImportWizard({
       skipped: number;
     } | null>(null),
     [stage, setStage] = useState(1);
+  const [category, setCategory] = useState("All"),
+    [selected, setSelected] = useState<Set<number>>(new Set());
   const work = async (fn: () => Promise<void>) => {
     setError("");
     setBusy(true);
@@ -147,7 +151,19 @@ export default function ImportWizard({
               onClick={() =>
                 void work(async () => {
                   const j = await post({ ...book, mapping, action: "preview" });
-                  setRows(j.rows);
+                  setRows(
+                    j.rows.map((r: ReviewRow) => ({
+                      ...r,
+                      excel: Object.fromEntries(
+                        Object.keys(r.existing ?? {})
+                          .filter((k) => k !== "updatedAt")
+                          .map((k) => [
+                            k,
+                            String(r[k as keyof ReviewRow] ?? ""),
+                          ]),
+                      ),
+                    })),
+                  );
                   setStage(3);
                 })
               }
@@ -190,6 +206,62 @@ export default function ImportWizard({
             the mapped fields, including blanks; inspect the comparison before
             choosing Update existing.
           </p>
+          <div className="tabs">
+            {[
+              "All",
+              "Ready",
+              "Warnings",
+              "Errors",
+              "Duplicates",
+              "Existing",
+              "New",
+            ].map((c) => (
+              <button
+                key={c}
+                className={category === c ? "selected" : "secondary"}
+                onClick={() => setCategory(c)}
+              >
+                {c} {rows.filter((r) => reviewCategory(r, c)).length}
+              </button>
+            ))}
+          </div>
+          <div className="actions">
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => setRows(bulkReview(rows, "new"))}
+            >
+              Import all valid new records
+            </button>
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => setRows(bulkReview(rows, "errors"))}
+            >
+              Skip all errors
+            </button>
+            <button
+              className="secondary"
+              disabled={busy || !selected.size}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "Update selected existing records using the reviewed values?",
+                  )
+                )
+                  setRows(bulkReview(rows, "existing", selected));
+              }}
+            >
+              Update selected existing records
+            </button>
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => setRows(bulkReview(rows, "duplicates"))}
+            >
+              Skip all duplicates
+            </button>
+          </div>
           <Table
             headers={[
               "Row / Member ID",
@@ -198,56 +270,164 @@ export default function ImportWizard({
               "Action",
               "Review",
             ]}
-            rows={rows.map((r) => ({
-              id: String(r.rowNumber),
-              sort: String(r.rowNumber).padStart(6, "0"),
-              cells: [
-                <span key="id">
-                  {r.rowNumber} · {r.memberId || "Missing ID"}
-                </span>,
-                <span key="info">
-                  {r.dob || "No date"} · {r.languages || "No language"}
-                  <br />
-                  {r.interests}
-                  <br />
-                  Suggested CR:{" "}
-                  {r.recipientConditions || r.suggested.cr || "None"}
-                  <br />
-                  Support:{" "}
-                  {supportFromNotes(r.remarks)
-                    .map((s) => `${s.scheme} (${s.status})`)
-                    .join(", ") || "None identified"}
-                </span>,
-                <span key="issues">
-                  {[...r.errors, ...r.warnings].map((s, i) => (
-                    <p key={i}>
-                      <Badge>{s}</Badge>
-                    </p>
-                  ))}
-                </span>,
-                <select
-                  aria-label={`Action for row ${r.rowNumber}`}
-                  key="action"
-                  value={r.action}
-                  onChange={(e) =>
-                    update({
-                      ...r,
-                      action: e.target.value as ReviewRow["action"],
-                    })
-                  }
-                >
-                  <option>Skip</option>
-                  <option>{r.existingId ? "Update existing" : "Import"}</option>
-                </select>,
-                <button
-                  key="review"
-                  className="secondary"
-                  onClick={() => setReview(r)}
-                >
-                  Review / correct
-                </button>,
-              ],
-            }))}
+            rows={rows
+              .filter((r) => reviewCategory(r, category))
+              .map((r) => ({
+                id: String(r.rowNumber),
+                sort: String(r.rowNumber).padStart(6, "0"),
+                cells: [
+                  <span key="id">
+                    <label className="row-select">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select row ${r.rowNumber}`}
+                        checked={selected.has(r.rowNumber)}
+                        onChange={(e) =>
+                          setSelected((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(r.rowNumber);
+                            else next.delete(r.rowNumber);
+                            return next;
+                          })
+                        }
+                      />
+                      {r.rowNumber} · {r.memberId || "Missing ID"}
+                    </label>
+                  </span>,
+                  <span key="info">
+                    {r.dob || "No date"} · {r.languages || "No language"}
+                    <br />
+                    {r.interests}
+                    <br />
+                    Suggested CR:{" "}
+                    {r.recipientConditions || r.suggested.cr || "None"}
+                    <br />
+                    Support:{" "}
+                    {supportFromNotes(r.remarks)
+                      .map((s) => `${s.scheme} (${s.status})`)
+                      .join(", ") || "None identified"}
+                  </span>,
+                  <span key="issues">
+                    {[...r.errors, ...r.warnings].map((s, i) => (
+                      <p key={i}>
+                        <Badge>{s}</Badge>
+                      </p>
+                    ))}
+                  </span>,
+                  <select
+                    aria-label={`Action for row ${r.rowNumber}`}
+                    key="action"
+                    value={r.action}
+                    onChange={(e) =>
+                      update({
+                        ...r,
+                        action: e.target.value as ReviewRow["action"],
+                      })
+                    }
+                  >
+                    <option>Skip</option>
+                    <option>
+                      {r.existingId ? "Update existing" : "Import"}
+                    </option>
+                  </select>,
+                  <div key="review">
+                    {r.existing && (
+                      <details className="comparison">
+                        <summary>Compare changed fields</summary>
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Field</th>
+                              <th>Current Record</th>
+                              <th>Excel Record</th>
+                              <th>Decision</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(r.existing)
+                              .filter(
+                                ([k, v]) =>
+                                  k !== "updatedAt" &&
+                                  (r.excel?.[k] ??
+                                    String(r[k as keyof ReviewRow] ?? "")) !==
+                                    v,
+                              )
+                              .map(([key, current]) => (
+                                <tr key={key}>
+                                  <td>{key}</td>
+                                  <td>{current || "Not recorded"}</td>
+                                  <td>
+                                    {(r.excel?.[key] ??
+                                      String(
+                                        r[key as keyof ReviewRow] ?? "",
+                                      )) ||
+                                      "Blank"}
+                                  </td>
+                                  <td>
+                                    <button
+                                      type="button"
+                                      className="secondary"
+                                      onClick={() =>
+                                        update({ ...r, [key]: current })
+                                      }
+                                    >
+                                      Keep Current
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="secondary"
+                                      onClick={() => {
+                                        setReview(r);
+                                      }}
+                                    >
+                                      Review Manually
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="secondary"
+                                      onClick={() =>
+                                        update({
+                                          ...r,
+                                          [key]:
+                                            r.excel?.[key] ??
+                                            String(
+                                              r[key as keyof ReviewRow] ?? "",
+                                            ),
+                                          action: "Update existing",
+                                        })
+                                      }
+                                    >
+                                      Use Excel Value
+                                    </button>
+                                    <small>
+                                      Reviewed:{" "}
+                                      {String(
+                                        r[key as keyof ReviewRow] ?? "",
+                                      ) || "Blank"}
+                                    </small>
+                                  </td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                        <button
+                          className="secondary"
+                          onClick={() => update({ ...r, action: "Skip" })}
+                        >
+                          Skip Record
+                        </button>
+                      </details>
+                    )}
+                    <button
+                      key="review"
+                      className="secondary"
+                      onClick={() => setReview(r)}
+                    >
+                      Review / correct
+                    </button>
+                  </div>,
+                ],
+              }))}
           />
           <p>
             Confirming import also adds recognised Receiving, Received and

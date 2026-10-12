@@ -1,0 +1,12 @@
+ALTER TABLE "User" ADD COLUMN "allCentres" BOOLEAN NOT NULL DEFAULT 1;
+CREATE TABLE "UserCentre" ("userId" TEXT NOT NULL, "centre" TEXT NOT NULL, PRIMARY KEY ("userId", "centre"), CONSTRAINT "UserCentre_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE);
+CREATE INDEX "UserCentre_centre_idx" ON "UserCentre"("centre");
+ALTER TABLE "Person" ADD COLUMN "assignedId" TEXT REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+CREATE INDEX "Person_assignedId_status_updatedAt_idx" ON "Person"("assignedId", "status", "updatedAt");
+ALTER TABLE "Alert" ADD COLUMN "snoozedUntil" DATETIME;
+CREATE INDEX "Alert_assignedId_status_idx" ON "Alert"("assignedId", "status");
+CREATE INDEX "Alert_status_snoozedUntil_idx" ON "Alert"("status", "snoozedUntil");
+ALTER TABLE "ImportBatch" ADD COLUMN "createdCount" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "ImportBatch" ADD COLUMN "updatedCount" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "ImportBatch" ADD COLUMN "skippedCount" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "ImportBatch" ADD COLUMN "errorCount" INTEGER NOT NULL DEFAULT 0;

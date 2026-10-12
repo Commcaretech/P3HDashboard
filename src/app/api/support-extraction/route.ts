@@ -1,3 +1,4 @@
+import { personScope, requirePersonAccess } from "@/lib/access";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -27,7 +28,12 @@ export async function POST(req: NextRequest) {
       .parse(await req.json());
     if (body.action === "preview") {
       const members = await db.person.findMany({
-        where: { kind: "Member", status: { not: "Archived" } },
+        where: {
+          AND: [
+            personScope(user),
+            { kind: "Member", status: { not: "Archived" } },
+          ],
+        },
         include: { grants: { include: { scheme: true } } },
       });
       const rows = members.flatMap((p) =>
@@ -51,6 +57,7 @@ export async function POST(req: NextRequest) {
         for (const s of body.selections)
           grouped.set(s.personId, [...(grouped.get(s.personId) ?? []), s]);
         for (const [personId, selections] of grouped) {
+          await requirePersonAccess(tx, user, personId);
           const p = await tx.person.findUniqueOrThrow({
             where: { id: personId },
           });

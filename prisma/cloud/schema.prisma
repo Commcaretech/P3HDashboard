@@ -16,6 +16,16 @@ model User {
  audits AuditLog[]
  alerts Alert[]
  grants GrantApplication[]
+ cases Person[]
+ allCentres Boolean @default(true)
+ allowedCentres UserCentre[]
+}
+model UserCentre {
+ userId String
+ centre String
+ user User @relation(fields:[userId], references:[id], onDelete:Cascade)
+ @@id([userId,centre])
+ @@index([centre])
 }
 model Session {
  id String @id
@@ -47,6 +57,8 @@ model Person {
  primaryCondition String @default("")
  tags String @default("")
  remarks String @default("")
+ assignedId String?
+ assigned User? @relation(fields:[assignedId],references:[id])
  rawImport Json?
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
@@ -59,6 +71,7 @@ model Person {
  grants GrantApplication[]
  alerts Alert[]
  participations Participation[]
+ @@index([assignedId,status,updatedAt])
  @@index([kind,status])
  @@index([name])
  @@index([centre])
@@ -218,11 +231,14 @@ model Alert {
  grant GrantApplication? @relation(fields:[grantId],references:[id])
  type String
  dueDate DateTime
+ snoozedUntil DateTime?
  priority String @default("Normal")
  assignedId String?
  assigned User? @relation(fields:[assignedId],references:[id])
  status String @default("Pending")
  notes String @default("")
+ @@index([assignedId,status])
+ @@index([status,snoozedUntil])
  @@index([status,dueDate])
 }
 model AuditLog {
@@ -239,6 +255,10 @@ model AuditLog {
 model ImportBatch {
  id String @id @default(cuid())
  filename String
+ createdCount Int @default(0)
+ updatedCount Int @default(0)
+ skippedCount Int @default(0)
+ errorCount Int @default(0)
  userId String
  createdAt DateTime @default(now())
  rows ImportRow[]

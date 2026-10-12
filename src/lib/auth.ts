@@ -25,7 +25,7 @@ export async function currentUser() {
   if (!token) return null;
   const s = await db.session.findUnique({
     where: { id: tokenHash(token) },
-    include: { user: true },
+    include: { user: { include: { allowedCentres: true } } },
   });
   return s && s.expiresAt > new Date() && s.user.active ? s.user : null;
 }

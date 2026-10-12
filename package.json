@@ -16,6 +16,7 @@
     "db:migrate": "node scripts/ensure-db.mjs && prisma migrate deploy",
     "db:seed": "tsx scripts/seed.ts",
     "backup": "node scripts/backup.mjs",
+    "package:source": "node scripts/package-source.mjs",
     "test:persistence": "tsx --test tests/persistence/*.test.ts",
     "cloud:generate": "prisma generate --schema prisma/cloud/schema.prisma",
     "cloud:validate": "prisma validate --schema prisma/cloud/schema.prisma",

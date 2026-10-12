@@ -35,7 +35,8 @@ export function errorResponse(e: unknown) {
       status:
         message === "Please sign in."
           ? 401
-          : message === "Your role does not permit this action."
+          : message === "Your role does not permit this action." ||
+              message === "Your centre permissions do not permit this record."
             ? 403
             : 400,
     },

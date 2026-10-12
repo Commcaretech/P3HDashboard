@@ -19,8 +19,68 @@ const { savePerson, saveProgramme } = await import("../src/lib/records");
 const { refreshAlerts } = await import("../src/lib/alerts");
 const { today } = await import("../src/lib/domain");
 const { extractMemberSupport } = await import("../src/lib/support-extraction");
+const { validateAssignment } = await import("../src/lib/access");
 after(async () => {
   await db.$disconnect();
+});
+
+test("assignments require an active staff account with centre access and changes are audited", async () => {
+  const staff = await db.user.create({
+    data: {
+      username: "assignment-fake",
+      name: "Fictional Case Owner",
+      passwordHash: "test-only",
+      role: "Staff",
+      allCentres: false,
+      allowedCentres: { create: [{ centre: "Centre A" }] },
+    },
+    include: { allowedCentres: true },
+  });
+  await db.$transaction((tx) =>
+    validateAssignment(tx, staff, staff.id, "Centre A"),
+  );
+  await assert.rejects(
+    db.$transaction((tx) =>
+      validateAssignment(tx, staff, staff.id, "Centre B"),
+    ),
+    /Assigned staff must have access/,
+  );
+  const member = await db.$transaction((tx) =>
+    savePerson(tx, staff.id, {
+      kind: "Member",
+      memberId: "ASSIGNMENT-FAKE",
+      centre: "Centre A",
+    }),
+  );
+  await db.$transaction((tx) =>
+    savePerson(
+      tx,
+      staff.id,
+      {
+        kind: "Member",
+        memberId: "ASSIGNMENT-FAKE",
+        centre: "Centre A",
+        assignedId: staff.id,
+      },
+      member.id,
+    ),
+  );
+  assert.equal(
+    await db.auditLog.count({
+      where: { action: "Assignment changed", entityId: member.id },
+    }),
+    1,
+  );
+  await db.user.update({ where: { id: staff.id }, data: { active: false } });
+  await assert.rejects(
+    db.$transaction((tx) =>
+      validateAssignment(tx, staff, staff.id, "Centre A"),
+    ),
+    /Assigned staff must have access/,
+  );
+  await db.auditLog.deleteMany({ where: { userId: staff.id } });
+  await db.person.delete({ where: { id: member.id } });
+  await db.user.delete({ where: { id: staff.id } });
 });
 
 test("note extraction persists support, preserves notes, audits and skips existing schemes", async () => {
@@ -167,8 +227,27 @@ test("relational CRUD, persistence, rollback, audit and idempotent alerts", asyn
   await refreshAlerts();
   const count = await db.alert.count();
   assert.equal(count, 6);
+  const generated = await db.alert.findFirstOrThrow({
+    where: { type: "Grant review" },
+  });
+  const snoozedUntil = new Date(Date.parse(today()) + 7 * 86400000);
+  await db.alert.update({
+    where: { id: generated.id },
+    data: { snoozedUntil },
+  });
   await refreshAlerts();
   assert.equal(await db.alert.count(), count);
+  const refreshed = await db.alert.findUniqueOrThrow({
+    where: { id: generated.id },
+  });
+  assert.equal(
+    refreshed.snoozedUntil?.toISOString(),
+    snoozedUntil.toISOString(),
+  );
+  assert.equal(
+    refreshed.dueDate.toISOString(),
+    generated.dueDate.toISOString(),
+  );
   const alert = await db.alert.findFirstOrThrow();
   await db.alert.update({
     where: { id: alert.id },

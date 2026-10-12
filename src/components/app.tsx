@@ -1,4 +1,6 @@
 "use client";
+import MyWork from "./my-work";
+import GlobalSearch from "./global-search";
 import SearchPage from "./searchpage";
 import AuditLog from "./auditlog";
 import Reports from "./reports";
@@ -25,14 +27,13 @@ import {
   ChartNoAxesCombined,
   History,
   Settings,
-  Search,
   ShieldCheck,
   LogOut,
   Menu,
 } from "lucide-react";
 import { Data, Person, Programme, Grant, label } from "@/lib/types";
 import { can, today } from "@/lib/domain";
-import { Table, Editor, Badge } from "./ui";
+import { Table, Editor, Badge, LoadingSkeleton } from "./ui";
 import {
   personFields,
   personValues,
@@ -45,9 +46,11 @@ import {
 } from "./fields";
 import { Editing, request, RequestError } from "./common";
 import Login from "./login";
+import ImportHistory from "./import-history";
 import ImportWizard from "./import-wizard";
 const nav = [
   ["dashboard", "Dashboard", LayoutDashboard],
+  ["my-work", "My Work", Users],
   ["members", "Members", Users],
   ["care-recipients", "Care Recipients", HeartHandshake],
   ["programmes", "Programmes", CalendarDays],
@@ -74,6 +77,7 @@ export default function DashboardApp({
       hosted?: boolean;
     } | null>(null),
     [data, setData] = useState<Data | null>(null),
+    [dataSection, setDataSection] = useState(""),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [edit, setEdit] = useState<Editing | null>(null),
@@ -81,7 +85,10 @@ export default function DashboardApp({
   const router = useRouter();
   const load = useCallback(async () => {
     try {
-      setData(await request("/api/data"));
+      setData(
+        await request(`/api/data?section=${encodeURIComponent(section)}`),
+      );
+      setDataSection(section);
     } catch (e) {
       if (e instanceof RequestError && e.status === 401) {
         setAuth({ user: null, setup: false });
@@ -89,7 +96,7 @@ export default function DashboardApp({
       }
       setError(e instanceof Error ? e.message : "Unable to load");
     }
-  }, []);
+  }, [section]);
   useEffect(() => {
     let mounted = true;
     void request("/api/auth")
@@ -160,7 +167,69 @@ export default function DashboardApp({
   const personEditor = (p?: Person, kind = "Member") =>
     setEdit({
       title: p ? `Edit ${label(p)}` : `Add ${kind.toLowerCase()}`,
-      fields: personFields(p?.kind ?? kind),
+      fields: [
+        ...personFields(p?.kind ?? kind),
+        {
+          key: "assignedId",
+          label: "Assigned staff / Case owner",
+          type: "select" as const,
+          section: "Overview",
+          options: [
+            { value: "", label: "Unassigned" },
+            ...(data?.staff
+              .filter((s) => s.active)
+              .map((s) => ({ value: s.id, label: s.name })) ?? []),
+          ],
+        },
+      ].map((f) =>
+        [
+          "languages",
+          "spokenLanguages",
+          "understoodLanguages",
+          "interests",
+          "conditions",
+        ].includes(f.key)
+          ? {
+              ...f,
+              type: "chips" as const,
+              options: [
+                ...new Set([
+                  ...(f.key.toLowerCase().includes("language")
+                    ? [
+                        "English",
+                        "Mandarin",
+                        "Malay",
+                        "Tamil",
+                        "Hokkien",
+                        "Cantonese",
+                      ]
+                    : f.key === "interests"
+                      ? [
+                          "Walking",
+                          "Exercise",
+                          "Music",
+                          "Cooking",
+                          "Games",
+                          "Arts",
+                        ]
+                      : [
+                          "Dementia",
+                          "High Blood Pressure",
+                          "Osteoporosis",
+                          "Gastritis",
+                        ]),
+                  ...(data?.people.flatMap((p) =>
+                    f.key.toLowerCase().includes("language")
+                      ? p.languages.map((l) => l.language.name)
+                      : f.key === "interests"
+                        ? p.interests.map((i) => i.interest.name)
+                        : p.conditions.map((c) => c.condition.name),
+                  ) ?? []),
+                ]),
+              ].map((value) => ({ value, label: value })),
+            }
+          : f,
+      ),
       initial: p ? personValues(p) : { status: "Active" },
       action: "person",
       id: p?.id,
@@ -170,7 +239,32 @@ export default function DashboardApp({
   const programmeEditor = (p?: Programme) =>
     setEdit({
       title: p ? "Edit programme" : "Add programme",
-      fields: programmeFields,
+      fields: programmeFields.map((f) => ({
+        ...f,
+        section: ["name", "description", "category", "centre"].includes(f.key)
+          ? "Programme"
+          : ["languages", "interests", "conditions", "mobility"].includes(f.key)
+            ? "Suitability"
+            : f.key === "notes"
+              ? "Notes"
+              : "Schedule & availability",
+        ...(["languages", "interests", "conditions"].includes(f.key)
+          ? {
+              type: "chips" as const,
+              options: [
+                ...new Set(
+                  data?.people.flatMap((p) =>
+                    f.key === "languages"
+                      ? p.languages.map((l) => l.language.name)
+                      : f.key === "interests"
+                        ? p.interests.map((i) => i.interest.name)
+                        : p.conditions.map((c) => c.condition.name),
+                  ) ?? [],
+                ),
+              ].map((value) => ({ value, label: value })),
+            }
+          : {}),
+      })),
       initial: p
         ? programmeValues(p)
         : { status: "Active", registrationStatus: "Open", capacity: 0 },
@@ -210,7 +304,7 @@ export default function DashboardApp({
           <span>P3H</span>
           <small>CASE MANAGEMENT</small>
         </Link>
-        <div className="nav-label">WORKSPACE</div>
+
         <nav>
           {nav
             .filter(
@@ -219,20 +313,47 @@ export default function DashboardApp({
                 (n[0] !== "import" || write),
             )
             .map(([key, name, Icon]) => (
-              <Link
-                key={key}
-                href={`/${key}`}
-                onClick={() => setMenu(false)}
-                className={section === key ? "active" : ""}
-              >
-                <Icon size={18} />
-                {name}
-                {key === "alerts" && data && (
-                  <span className="nav-count">
-                    {data.alerts.filter((a) => a.status === "Pending").length}
-                  </span>
+              <div key={key}>
+                {(
+                  {
+                    dashboard: "Overview",
+                    members: "People",
+                    programmes: "Programmes",
+                    grants: "Support",
+                    import: "Data",
+                    audit: "Administration",
+                  } as Record<string, string>
+                )[key] && (
+                  <div className="nav-label">
+                    {
+                      (
+                        {
+                          dashboard: "Overview",
+                          members: "People",
+                          programmes: "Programmes",
+                          grants: "Support",
+                          import: "Data",
+                          audit: "Administration",
+                        } as Record<string, string>
+                      )[key]
+                    }
+                  </div>
                 )}
-              </Link>
+                <Link
+                  key={key}
+                  href={`/${key}`}
+                  onClick={() => setMenu(false)}
+                  className={section === key ? "active" : ""}
+                >
+                  <Icon size={18} />
+                  {name}
+                  {key === "alerts" && data && (
+                    <span className="nav-count">
+                      {data.alerts.filter((a) => a.status === "Pending").length}
+                    </span>
+                  )}
+                </Link>
+              </div>
             ))}
         </nav>
         <div className="local-note">
@@ -252,14 +373,7 @@ export default function DashboardApp({
           >
             <Menu size={20} />
           </button>
-          <form className="global-search" action="/search">
-            <Search size={18} />
-            <input
-              name="q"
-              placeholder="Search people, programmes, conditions…"
-              aria-label="Global search"
-            />
-          </form>
+          <GlobalSearch />
           <div className="user">
             <span>
               {u.name}
@@ -286,7 +400,7 @@ export default function DashboardApp({
               <h1>{title}</h1>
               <p className="muted">
                 {section === "dashboard"
-                  ? "Your caseload, support and upcoming actions at a glance."
+                  ? `Hello, ${u.name}. Here is what needs your attention today.`
                   : "Maintain accurate records and coordinate support."}
               </p>
             </div>
@@ -322,11 +436,14 @@ export default function DashboardApp({
             <section className="panel">
               Your role does not permit this page.
             </section>
-          ) : !data ? (
-            <p role="status">Loading records…</p>
+          ) : !data || dataSection !== section ? (
+            <LoadingSkeleton />
           ) : (
             <>
               {section === "dashboard" && <Overview d={data} />}
+              {section === "my-work" && (
+                <MyWork d={data} userId={u.id} manager={can(u.role, "audit")} />
+              )}
               {(section === "members" || section === "care-recipients") && (
                 <People
                   d={data}
@@ -383,9 +500,15 @@ export default function DashboardApp({
                   write={write}
                   action={safeAction}
                   onCreate={createAlert}
+                  userId={u.id}
                 />
               )}
-              {section === "import" && <ImportWizard onImported={load} />}
+              {section === "import" && (
+                <>
+                  <ImportWizard onImported={load} />
+                  <ImportHistory admin={can(u.role, "admin")} revision={data} />
+                </>
+              )}
               {section === "reports" && <Reports d={data} />}
               {section === "audit" && <AuditLog d={data} />}
               {section === "settings" && (
@@ -411,7 +534,14 @@ export default function DashboardApp({
                     </button>
                   )}
                   <Table
-                    headers={["Staff", "Username", "Role", "Status"]}
+                    headers={[
+                      "Staff",
+                      "Username",
+                      "Role",
+                      "Status",
+                      "Centre access",
+                      "Actions",
+                    ]}
                     rows={data.staff.map((s) => ({
                       id: s.id,
                       sort: s.name,
@@ -420,6 +550,57 @@ export default function DashboardApp({
                         s.username,
                         <Badge key="role">{s.role}</Badge>,
                         s.active ? "Active" : "Inactive",
+                        s.role === "Admin" || s.allCentres
+                          ? "All centres"
+                          : s.allowedCentres.map((c) => c.centre).join(", "),
+                        can(u.role, "admin") ? (
+                          <button
+                            key="access"
+                            className="secondary"
+                            onClick={() =>
+                              setEdit({
+                                title: "Centre permissions",
+                                action: "userAccess",
+                                id: s.id,
+                                fields: [
+                                  {
+                                    key: "allCentres",
+                                    label: "Access",
+                                    type: "select",
+                                    options: [
+                                      {
+                                        value: "All centres",
+                                        label: "All centres",
+                                      },
+                                      {
+                                        value: "Selected centres",
+                                        label: "Selected centres",
+                                      },
+                                    ],
+                                  },
+                                  {
+                                    key: "centres",
+                                    label: "Allowed centres",
+                                    type: "chips",
+                                    hint: "Use exact centre names from case records",
+                                  },
+                                ],
+                                initial: {
+                                  allCentres: s.allCentres
+                                    ? "All centres"
+                                    : "Selected centres",
+                                  centres: s.allowedCentres
+                                    .map((c) => c.centre)
+                                    .join(", "),
+                                },
+                              })
+                            }
+                          >
+                            Edit access
+                          </button>
+                        ) : (
+                          "?"
+                        ),
                       ],
                     }))}
                   />
@@ -446,6 +627,7 @@ export default function DashboardApp({
               {section === "search" && <SearchPage d={data} />}
               {![
                 "dashboard",
+                "my-work",
                 "members",
                 "care-recipients",
                 "people",
