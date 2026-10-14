@@ -2,6 +2,8 @@
 
 This configuration runs the application on Render and retains its records in Supabase PostgreSQL. Your laptop needs only a browser. The local SQLite configuration remains available separately. The cloud database starts empty: this process does not copy your local records or passwords.
 
+Daily sign-in uses the account **Username** and **Password** entered when creating the administrator or staff account. The display name is separate from the username. `SETUP_TOKEN` authorises first administrator setup only and is not a login password. Signing out ends the current session and preserves the account and password.
+
 ## 1. Put the prepared source on GitHub
 
 A source-only package is provided at `artifacts/p3h-render-source.zip`. Extract it on your laptop and upload the extracted files and folders, not the ZIP itself. It excludes credentials, database files and spreadsheets.

@@ -64,8 +64,18 @@ export default function Login({
         )}
         <label>
           Username
-          <input name="username" required autoComplete="username" />
+          <input
+            name="username"
+            required
+            autoComplete="username"
+            aria-describedby={!setup ? "username-help" : undefined}
+          />
         </label>
+        {!setup && (
+          <small id="username-help">
+            Use your account username, which may differ from your display name.
+          </small>
+        )}
         <label>
           Password
           <input
@@ -74,8 +84,15 @@ export default function Login({
             minLength={setup ? 12 : undefined}
             required
             autoComplete={setup ? "new-password" : "current-password"}
+            aria-describedby={!setup ? "password-help" : undefined}
           />
         </label>
+        {!setup && (
+          <small id="password-help">
+            Use your account password. The setup token is only for creating the
+            first administrator.
+          </small>
+        )}
         {error && (
           <p className="error" role="alert">
             {error}

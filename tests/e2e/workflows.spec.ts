@@ -3,6 +3,7 @@ import ExcelJS from "exceljs";
 import { randomBytes } from "node:crypto";
 import { readFile, access } from "node:fs/promises";
 const password = randomBytes(24).toString("base64url");
+
 test.describe.configure({ mode: "serial" });
 const browserIssues = new WeakMap<Page, string[]>();
 test.beforeEach(({ page }) => {
@@ -1130,4 +1131,45 @@ test("restricted manager and read-only accounts have scoped server access", asyn
     });
     expect(adminOnly.status()).toBe(403);
   }
+});
+
+test("signing out allows the same account to sign back in repeatedly", async ({
+  page,
+  context,
+}) => {
+  const login = await context.request.post("/api/auth", {
+    headers: { Origin: "http://127.0.0.1:3100" },
+    data: { action: "login", username: "fake.admin", password },
+  });
+  // This scenario runs after the existing setup workflow below.
+  expect(login.ok()).toBe(true);
+  await page.goto("/dashboard");
+  for (let repeat = 0; repeat < 2; repeat++) {
+    await expect(
+      page.getByRole("heading", { name: "Dashboard", exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: "Welcome back" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "Use your account username, which may differ from your display name.",
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "Use your account password. The setup token is only for creating the first administrator.",
+      ),
+    ).toBeVisible();
+    expect(
+      (await (await context.request.get("/api/auth")).json()).user,
+    ).toBeNull();
+    await page.getByLabel("Username", { exact: true }).fill("fake.admin");
+    await page.getByLabel("Password", { exact: true }).fill(password);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  }
+  await expect(
+    page.getByRole("heading", { name: "Dashboard", exact: true }),
+  ).toBeVisible();
 });

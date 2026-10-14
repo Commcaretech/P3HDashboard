@@ -70,3 +70,9 @@ Birthday alerts now use one stable person/birthday key within the next 30 days, 
 The shared native dialog explicitly uses fixed viewport positioning, zero inset and automatic margins, overriding the CSS reset's zero-margin positioning. Its height is bounded by the dynamic viewport and content continues to scroll internally. All shared pop-ups use this style.
 
 TypeScript, ESLint, 31 unit/database tests, the production build and nine Chromium workflows passed. The grant editor's horizontal and vertical centres were checked within two pixels at 1440x900, 1024x768 and 390x844, with its bounds inside the viewport. Desktop and mobile screenshots using fictional records were visually inspected. The hosted website requires redeployment of the updated source.
+
+## Sign-out and sign-in guidance - 12 October 2026
+
+The reported error was `Username or password is incorrect`; the user indicated they may be using a display name or setup token. Added accessible login hints explaining account username versus display name and account password versus setup token, and clarified deployment documentation. No account, password, authentication rule or hosted database was changed.
+
+TypeScript, ESLint, the production build and all ten Chromium workflows passed. The added regression signs out and signs back into the same account twice, checks the session is unauthenticated after logout, checks the guidance and confirms the dashboard returns. This verifies local application behaviour; the actual hosted account credentials were not accessed.
