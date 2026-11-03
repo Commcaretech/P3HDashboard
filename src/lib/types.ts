@@ -3,6 +3,7 @@ export type Person = {
   kind: "Member" | "Care Recipient";
   memberId: string | null;
   name: string;
+  contactNumber?: string;
   alias: string;
   dob: string | null;
   centre: string;
@@ -77,6 +78,21 @@ export type Programme = {
 export type Grant = {
   id: string;
   personId: string;
+  resolvedAt?: string | null;
+  followUpFrequency?: string;
+  followUpDays?: number | null;
+  followUpMonths?: number | null;
+  recurring?: boolean;
+  overrideReason?: string;
+  followUps?: {
+    id: string;
+    completedAt: string;
+    completedBy: string;
+    outcome: string;
+    notes: string;
+    resolved: boolean;
+    nextDate: string | null;
+  }[];
   scheme: { name: string };
   status: string;
   applicationDate: string | null;
@@ -93,6 +109,7 @@ export type Grant = {
 export type Alert = {
   id: string;
   title: string;
+  grantId?: string | null;
   personId: string | null;
   type: string;
   dueDate: string;
@@ -107,6 +124,9 @@ export type Staff = {
   id: string;
   name: string;
   username: string;
+  email?: string | null;
+  emailNotifications?: boolean;
+  recipientBirthdays?: boolean;
   role: string;
   active: boolean;
   allCentres: boolean;
@@ -122,6 +142,11 @@ export type Audit = {
   changes: { before: unknown; after: unknown };
 };
 export type Data = {
+  dashboardSummary?: {
+    conditions: { name: string; count: number }[];
+    activeProgrammes: number;
+    completedThisMonth: number;
+  };
   people: Person[];
   programmes: Programme[];
   grants: Grant[];

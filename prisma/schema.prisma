@@ -12,6 +12,9 @@ model User {
  passwordHash String
  role String @default("Staff")
  active Boolean @default(true)
+ email String? @unique
+ emailNotifications Boolean @default(false)
+ recipientBirthdays Boolean @default(false)
  sessions Session[]
  audits AuditLog[]
  alerts Alert[]
@@ -39,6 +42,7 @@ model Person {
  kind String
  memberId String? @unique
  name String @default("")
+ contactNumber String @default("")
  alias String @default("")
  dob DateTime?
  centre String @default("")
@@ -206,6 +210,13 @@ model GrantApplication {
  scheme SupportScheme @relation(fields:[schemeId],references:[id])
  personId String
  person Person @relation(fields:[personId],references:[id])
+ followUpFrequency String @default("Automatic")
+ followUpDays Int?
+ followUpMonths Int?
+ recurring Boolean @default(false)
+ resolvedAt DateTime?
+ overrideReason String @default("")
+ followUps FollowUp[]
  applicationDate DateTime?
  submissionDate DateTime?
  approvalDate DateTime?
@@ -223,6 +234,8 @@ model GrantApplication {
 }
 model Alert {
  id String @id @default(cuid())
+ autoDismissed Boolean @default(false)
+ activeFollowUpKey String? @unique
  sourceKey String? @unique
  title String
  personId String?
@@ -277,4 +290,36 @@ model LoginAttempt {
  username String @id
  failures Int @default(0)
  lockedUntil DateTime?
+}
+
+model FollowUp {
+ id String @id @default(cuid())
+ alertId String @unique
+ grantId String
+ grant GrantApplication @relation(fields:[grantId],references:[id])
+ completedBy String
+ completedAt DateTime
+ outcome String
+ notes String @default("")
+ resolved Boolean @default(false)
+ nextDate DateTime?
+ @@index([grantId,completedAt])
+}
+model NotificationDelivery {
+ id String @id @default(cuid())
+ notificationKey String @unique
+ userId String
+ type String @default("Daily digest")
+ scheduledDate String
+ status String @default("Pending")
+ payload Json?
+ reminderIds Json?
+ providerMessageId String?
+ lastAttempt DateTime?
+ attempts Int @default(0)
+ failureReason String?
+ leaseUntil DateTime?
+ leaseToken String?
+ createdAt DateTime @default(now())
+ @@index([status,scheduledDate])
 }

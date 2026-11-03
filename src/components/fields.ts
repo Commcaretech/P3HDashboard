@@ -11,6 +11,11 @@ export function personFields(kind: string): Field[] {
       section: "Overview",
     },
     { key: "name", label: "Name", section: "Overview" },
+    {
+      key: "contactNumber",
+      label: "Contact number (optional)",
+      section: "Overview",
+    },
     { key: "alias", label: "Alias", section: "Overview" },
     { key: "dob", label: "Date of birth", type: "date", section: "Overview" },
     { key: "centre", label: "Centre", section: "Overview" },
@@ -33,7 +38,7 @@ export function personFields(kind: string): Field[] {
     {
       key: "preferredLanguage",
       label: "Preferred language",
-      section: "Languages & interests",
+      section: "Overview",
     },
     {
       key: "spokenLanguages",
@@ -210,7 +215,9 @@ export function grantFields(d: Data): Field[] {
       key: "status",
       label: "Status",
       type: "select",
-      options: opts(grantStatuses),
+      options: opts([
+        ...new Set([...grantStatuses, ...d.grants.map((g) => g.status)]),
+      ]),
     },
     ...[
       "applicationDate",
@@ -231,6 +238,21 @@ export function grantFields(d: Data): Field[] {
       )[key],
       type: "date" as const,
     })),
+    {
+      key: "followUpFrequency",
+      label: "Follow-up frequency",
+      type: "select",
+      options: opts(["Automatic", "Once", "7", "14", "30", "90"]),
+      hint: "Automatic uses scheme rules. Numbers are days; custom intervals repeat until resolved.",
+    },
+    { key: "overrideReason", label: "Date override reason (optional)" },
+    {
+      key: "resolution",
+      label: "Follow-up resolution",
+      type: "select",
+      options: opts(["Open", "Resolved"]),
+      hint: "Approval alone does not resolve outstanding payout or follow-up work.",
+    },
     { key: "amount", label: "Amount (SGD)", type: "number" },
     {
       key: "assignedId",
@@ -244,6 +266,8 @@ export function grantFields(d: Data): Field[] {
 export const grantValues = (g: Grant) => ({
   ...g,
   scheme: g.scheme.name,
+  followUpFrequency: g.followUpFrequency || "Automatic",
+  resolution: g.resolvedAt ? "Resolved" : "Open",
   amount: g.amount ?? "",
   assignedId: g.assignedId ?? "",
   ...Object.fromEntries(

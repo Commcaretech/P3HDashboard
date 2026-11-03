@@ -1,4 +1,6 @@
 "use client";
+import { FollowUpDialog } from "./follow-up-dialog";
+import { Alert } from "@/lib/types";
 import { useState } from "react";
 import { today } from "@/lib/domain";
 import { alertDue, alertGroup, alertGroups } from "@/lib/workflow";
@@ -11,6 +13,7 @@ export default function Alerts({
   action,
   onCreate,
   userId,
+  followUpAction,
 }: {
   d: Data;
   write: boolean;
@@ -21,7 +24,13 @@ export default function Alerts({
   ) => Promise<void>;
   onCreate: () => void;
   userId: string;
+  followUpAction?: (
+    a: string,
+    v: Record<string, unknown>,
+    id?: string,
+  ) => Promise<void>;
 }) {
+  const [followUp, setFollowUp] = useState<Alert | null>(null);
   const [f, setF] = useFilters();
   const [snooze, setSnooze] = useState<string | null>(null),
     [date, setDate] = useState(""),
@@ -68,8 +77,8 @@ export default function Alerts({
         </div>
       )}
       <p>
-        Birthday and grant reminders refresh when records load. Repeated
-        refreshes do not create duplicate alerts.
+        Birthday and grant reminders run through the scheduled job and after
+        record changes. Repeated refreshes do not create duplicate alerts.
       </p>
       <div className="tabs">
         {[
@@ -162,14 +171,18 @@ export default function Alerts({
                             <button
                               className="secondary"
                               onClick={() =>
-                                void action(
-                                  "alertStatus",
-                                  { status: "Completed" },
-                                  a.id,
-                                )
+                                a.grantId && a.type === "Grant review"
+                                  ? setFollowUp(a)
+                                  : void action(
+                                      "alertStatus",
+                                      { status: "Completed" },
+                                      a.id,
+                                    )
                               }
                             >
-                              Complete
+                              {a.grantId && a.type === "Grant review"
+                                ? "Mark Follow-up Done"
+                                : "Complete"}
                             </button>
                             <button
                               className="secondary"
@@ -222,6 +235,14 @@ export default function Alerts({
         <div className="empty">
           No matching records. Change your filters or create a reminder.
         </div>
+      )}
+      {followUp && (
+        <FollowUpDialog
+          alert={followUp}
+          d={d}
+          action={followUpAction ?? action}
+          onClose={() => setFollowUp(null)}
+        />
       )}
       {snooze && (
         <Modal

@@ -1,7 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
 import ExcelJS from "exceljs";
+import { readFile } from "node:fs/promises";
+import { today } from "../../src/lib/domain";
+import { addDays, calculateFollowUp } from "../../src/lib/follow-up";
 import { randomBytes } from "node:crypto";
-import { readFile, access } from "node:fs/promises";
+
 const password = randomBytes(24).toString("base64url");
 
 test.describe.configure({ mode: "serial" });
@@ -39,7 +42,7 @@ test("critical local case-management workflows and server permissions", async ({
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Create administrator" }).click();
   await expect(
-    page.getByRole("heading", { name: "Dashboard", exact: true }),
+    page.getByRole("heading", { name: "P3H Dashboard", exact: true }),
   ).toBeVisible();
   const wb = new ExcelJS.Workbook();
   const s = wb.addWorksheet("Members");
@@ -114,6 +117,9 @@ test("critical local case-management workflows and server permissions", async ({
     .fill(
       `1950-${new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore", month: "2-digit", day: "2-digit" }).format(new Date()).replace("/", "-")}`,
     );
+  await page
+    .getByLabel("Assigned staff / Case owner")
+    .selectOption({ label: "Fake Administrator" });
   await page.getByRole("tab", { name: "Languages & interests" }).click();
   await page.getByLabel("Other spoken / understood languages").fill("Mandarin");
   await page.getByLabel("Interests", { exact: true }).fill("Exercise, Walking");
@@ -124,9 +130,9 @@ test("critical local case-management workflows and server permissions", async ({
     .getByLabel("Mobility", { exact: true })
     .selectOption("Assisted");
   await page.getByRole("button", { name: "Save record" }).click();
-  await page
-    .getByRole("link", { name: "Fictional Recipient", exact: true })
-    .click();
+  await expect(
+    page.getByRole("heading", { name: "Fictional Recipient", exact: true }),
+  ).toBeVisible();
   await page
     .getByRole("button", { name: "Care Relationships", exact: true })
     .click();
@@ -174,7 +180,7 @@ test("critical local case-management workflows and server permissions", async ({
   ).toBeVisible();
   await page.getByRole("button", { name: "Register participation" }).click();
   await page
-    .getByRole("link", { name: "Grants & Support", exact: true })
+    .getByRole("link", { name: "Grants & Referrals", exact: true })
     .click();
   await page.getByRole("button", { name: "+ Add grant / support" }).click();
   await page
@@ -187,6 +193,7 @@ test("critical local case-management workflows and server permissions", async ({
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
+  await page.getByLabel("Application date", { exact: true }).fill(now);
   await page.getByLabel("Next review date", { exact: true }).fill(now);
   await page.getByRole("button", { name: "Save record" }).click();
   await page.getByRole("link", { name: "Dashboard", exact: true }).click();
@@ -197,13 +204,37 @@ test("critical local case-management workflows and server permissions", async ({
   const birthdayRow = page.getByRole("row").filter({
     hasText: "Birthday: Fictional Recipient (today)",
   });
-  await expect(birthdayRow).toHaveCount(1);
+  await expect(birthdayRow).toHaveCount(0);
+  const admin = (await (await context.request.get("/api/auth")).json()).user;
+  expect(
+    (
+      await context.request.post("/api/action", {
+        headers: { Origin: "http://127.0.0.1:3100" },
+        data: {
+          action: "staffSettings",
+          id: admin.id,
+          data: {
+            email: "",
+            emailNotifications: "Disabled",
+            recipientBirthdays: "Enabled",
+            active: "Active",
+            role: "Admin",
+          },
+        },
+      })
+    ).ok(),
+  ).toBe(true);
   await page.getByRole("button", { name: "Refresh Alerts" }).click();
   await expect(birthdayRow).toHaveCount(1);
   const alertRow = page
     .getByRole("row")
     .filter({ hasText: "HCG: Grant review" });
-  await alertRow.getByRole("button", { name: "Complete", exact: true }).click();
+  await alertRow
+    .getByRole("button", { name: "Mark Follow-up Done", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Save follow-up", exact: true })
+    .click();
   await expect(alertRow).toHaveCount(0);
   await page.getByRole("button", { name: "Refresh Alerts" }).click();
   await expect(
@@ -214,7 +245,7 @@ test("critical local case-management workflows and server permissions", async ({
   await expect(
     page.getByRole("link", { name: /Fictional Caregiver/ }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Members", exact: true }).click();
+  await page.getByRole("link", { name: "Caregivers", exact: true }).click();
   await page.getByRole("button", { name: "Filters", exact: true }).click();
   await page.getByLabel("Centre", { exact: true }).selectOption("Fake Centre");
   await expect(
@@ -260,12 +291,12 @@ test("critical local case-management workflows and server permissions", async ({
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Dashboard", exact: true }),
+    page.getByRole("heading", { name: "P3H Dashboard", exact: true }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Members", exact: true }).click();
-  await expect(page.getByRole("button", { name: "+ Add member" })).toHaveCount(
-    0,
-  );
+  await page.getByRole("link", { name: "Caregivers", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "+ Add Caregiver" }),
+  ).toHaveCount(0);
   const denied = await context.request.post("/api/action", {
     headers: { Origin: "http://127.0.0.1:3100" },
     data: {
@@ -298,13 +329,13 @@ test("navigation, reports, invalid forms, confirmations, duplicate updates and r
     ).ok(),
   ).toBe(true);
   for (const [path, title] of [
-    ["dashboard", "Dashboard"],
-    ["my-work", "My Work"],
-    ["members", "Members"],
+    ["dashboard", "P3H Dashboard"],
+    ["my-work", "My Tasks"],
+    ["members", "Caregivers"],
     ["care-recipients", "Care Recipients"],
     ["programmes", "Programmes"],
     ["matching", "Programme Matching"],
-    ["grants", "Grants & Support"],
+    ["grants", "Grants & Referrals"],
     ["alerts", "Alerts"],
     ["import", "Import Data"],
     ["reports", "Reports"],
@@ -332,7 +363,7 @@ test("navigation, reports, invalid forms, confirmations, duplicate updates and r
     await expect(page.getByRole("table")).toBeVisible();
   }
   await page.goto("/members");
-  await page.getByRole("button", { name: "+ Add member" }).click();
+  await page.getByRole("button", { name: "+ Add Caregiver" }).click();
   await page.getByRole("button", { name: "Save record" }).click();
   await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
     "Member ID",
@@ -343,8 +374,9 @@ test("navigation, reports, invalid forms, confirmations, duplicate updates and r
     .fill("Second Fictional Caregiver");
   await page.getByRole("button", { name: "Save record" }).click();
   await expect(
-    page.getByRole("link", { name: /Second Fictional Caregiver/ }),
+    page.getByRole("heading", { name: /Second Fictional Caregiver/ }),
   ).toBeVisible();
+  await page.goto("/members");
   const second = page.getByRole("row").filter({ hasText: "E2E-002" });
   page.once("dialog", (d) => d.accept());
   await second.locator(".action-menu summary").click();
@@ -471,7 +503,7 @@ test("navigation, reports, invalid forms, confirmations, duplicate updates and r
   ).toBe(false);
   await page.goto("/dashboard");
   await expect(
-    page.getByRole("heading", { name: "Needs attention", exact: true }),
+    page.getByRole("heading", { name: "My Tasks Today", exact: true }),
   ).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({
@@ -480,7 +512,7 @@ test("navigation, reports, invalid forms, confirmations, duplicate updates and r
   });
   await page.setViewportSize({ width: 1024, height: 768 });
   await expect(
-    page.getByRole("heading", { name: "Dashboard", exact: true }),
+    page.getByRole("heading", { name: "P3H Dashboard", exact: true }),
   ).toBeVisible();
   await page.screenshot({
     path: "test-results/dashboard-tablet.png",
@@ -489,20 +521,25 @@ test("navigation, reports, invalid forms, confirmations, duplicate updates and r
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Toggle navigation" }).click();
   await expect(
-    page.getByRole("link", { name: "Members", exact: true }),
+    page.getByRole("link", { name: "Caregivers", exact: true }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Members", exact: true }).click();
+  await page.getByRole("link", { name: "Caregivers", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Members", exact: true }),
+    page.getByRole("heading", { name: "Caregivers", exact: true }),
   ).toBeVisible();
 });
-test("provided sample workbook parses, commits and detects reimport locally", async ({
+test("fictional sample workbook parses, commits and detects reimport locally", async ({
   request,
 }) => {
-  const path =
-    process.env.SAMPLE_WORKBOOK ??
-    "C:/Users/CHANYULE/Downloads/Members (cth.user) (14).xlsx";
-  await access(path);
+  const sample = new ExcelJS.Workbook();
+  const sheet = sample.addWorksheet("Members");
+  sheet.addRow([
+    "Member ID",
+    "Other Medical Conditions",
+    "Language spoken / understood",
+  ]);
+  sheet.addRow(["FICTIONAL-SAMPLE-001", "CR: Dementia; ZBI = 10", "English"]);
+  const sampleBytes = Buffer.from(await sample.xlsx.writeBuffer());
   const origin = { Origin: "http://127.0.0.1:3100" };
   await request.post("/api/auth", {
     headers: origin,
@@ -515,7 +552,7 @@ test("provided sample workbook parses, commits and detects reimport locally", as
         name: "sample.xlsx",
         mimeType:
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        buffer: await readFile(path),
+        buffer: sampleBytes,
       },
     },
   });
@@ -730,6 +767,8 @@ test("case assignment, snoozing, scoped search and direct API centre restriction
     personId: outside.id,
     scheme: "HCG",
     status: "Approved",
+    applicationDate: today(),
+    nextReviewDate: today(),
     assignedId: admin.id,
   });
   const now = new Intl.DateTimeFormat("en-CA", {
@@ -1146,7 +1185,7 @@ test("signing out allows the same account to sign back in repeatedly", async ({
   await page.goto("/dashboard");
   for (let repeat = 0; repeat < 2; repeat++) {
     await expect(
-      page.getByRole("heading", { name: "Dashboard", exact: true }),
+      page.getByRole("heading", { name: "P3H Dashboard", exact: true }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Sign out", exact: true }).click();
     await expect(
@@ -1170,6 +1209,254 @@ test("signing out allows the same account to sign back in repeatedly", async ({
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
   }
   await expect(
-    page.getByRole("heading", { name: "Dashboard", exact: true }),
+    page.getByRole("heading", { name: "P3H Dashboard", exact: true }),
   ).toBeVisible();
+});
+
+test("automatic referral workflow, manual date review, resolution, history and notification security", async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: "http://127.0.0.1:3100" };
+  expect(
+    (
+      await context.request.post("/api/auth", {
+        headers,
+        data: { action: "login", username: "fake.admin", password },
+      })
+    ).ok(),
+  ).toBe(true);
+  const auth = await (await context.request.get("/api/auth")).json();
+  await page.goto("/dashboard");
+  await page
+    .getByRole("button", { name: "Add Grant/Referral", exact: true })
+    .click();
+  const data = await (await context.request.get("/api/data")).json();
+  const person = data.people.find(
+    (p: { memberId: string }) => p.memberId === "E2E-001",
+  );
+  await page.getByLabel("Person", { exact: true }).selectOption(person.id);
+  await page.getByLabel("Scheme name", { exact: true }).fill("HPC+ referral");
+  await page
+    .getByLabel("Application date", { exact: true })
+    .fill(addDays(today(), -7));
+  await expect(
+    page.getByLabel("Next review date", { exact: true }),
+  ).toHaveValue(today());
+  await expect(page.getByRole("dialog").getByRole("status")).toContainText(
+    "Weekly referral rule",
+  );
+  await page
+    .getByLabel("Assigned staff", { exact: true })
+    .selectOption(auth.user.id);
+  await page.getByRole("button", { name: "Save record", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.goto("/alerts");
+  const row = page
+    .getByRole("row")
+    .filter({ hasText: "HPC+ referral: Grant review" });
+  await row
+    .getByRole("button", { name: "Mark Follow-up Done", exact: true })
+    .click();
+  await expect(page.getByRole("dialog").getByRole("status")).toContainText(
+    addDays(today(), 7),
+  );
+  await page
+    .getByLabel("Outcome", { exact: true })
+    .selectOption("Pending Response");
+  await page.getByLabel("Notes (optional)").fill("Fictional follow-up outcome");
+  await page
+    .getByRole("button", { name: "Save follow-up", exact: true })
+    .click();
+  await expect(row).toContainText(addDays(today(), 7));
+  await row
+    .getByRole("button", { name: "Mark Follow-up Done", exact: true })
+    .click();
+  await page.getByLabel("Resolution", { exact: true }).selectOption("Resolved");
+  await page
+    .getByRole("button", { name: "Save follow-up", exact: true })
+    .click();
+  await expect(row).toHaveCount(0);
+  const refreshed = await (await context.request.get("/api/data")).json();
+  const grant = refreshed.grants.find(
+    (g: { scheme: { name: string } }) => g.scheme.name === "HPC+ referral",
+  );
+  expect(grant.followUps).toHaveLength(2);
+  expect(grant.resolvedAt).toBeTruthy();
+  await page.goto(`/people/${person.id}`);
+  await page
+    .getByRole("button", { name: "Follow-up History", exact: true })
+    .click();
+  await expect(
+    page.getByText("Fictional follow-up outcome", { exact: true }),
+  ).toBeVisible();
+  await page.goto("/grants");
+  await page
+    .getByRole("row")
+    .filter({ hasText: "HPC+ referral" })
+    .getByRole("button", { name: "Edit", exact: true })
+    .click();
+  await page.getByLabel("Follow-up resolution").selectOption("Open");
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Save record", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(
+    (await (await context.request.get("/api/data")).json()).alerts.filter(
+      (a: { grantId: string; status: string }) =>
+        a.grantId === grant.id && a.status === "Pending",
+    ),
+  ).toHaveLength(1);
+  const create = await context.request.post("/api/action", {
+    headers,
+    data: {
+      action: "grant",
+      data: {
+        personId: person.id,
+        scheme: "South West CDC $1,000",
+        status: "Submitted",
+        applicationDate: "2026-11-05",
+        assignedId: auth.user.id,
+      },
+    },
+  });
+  expect(create.ok()).toBe(true);
+  const south = (await create.json()).result;
+  expect(south.nextReviewDate.slice(0, 10)).toBe(
+    calculateFollowUp("South West CDC", "2026-11-05").date,
+  );
+  expect(
+    (await (await context.request.get("/api/data")).json()).alerts.some(
+      (a: { grantId: string; status: string }) =>
+        a.grantId === south.id && a.status === "Pending",
+    ),
+  ).toBe(true);
+  const changed = await context.request.post("/api/action", {
+    headers,
+    data: {
+      action: "grant",
+      id: south.id,
+      data: { submissionDate: "2026-11-07" },
+    },
+  });
+  expect(changed.ok()).toBe(true);
+  const changedGrant = (await changed.json()).result;
+  expect(changedGrant.nextReviewDate.slice(0, 10)).toBe("2027-01-07");
+  expect(changedGrant.applicationDate.slice(0, 10)).toBe("2026-11-05");
+  const override = await context.request.post("/api/action", {
+    headers,
+    data: {
+      action: "grant",
+      id: south.id,
+      data: {
+        nextReviewDate: "2027-02-02",
+        overrideReason: "Fictional staff decision",
+      },
+    },
+  });
+  expect(override.ok()).toBe(true);
+  expect((await override.json()).result.overrideReason).toBe(
+    "Fictional staff decision",
+  );
+  const amount = await context.request.post("/api/action", {
+    headers,
+    data: { action: "grant", id: south.id, data: { amount: "250" } },
+  });
+  expect(amount.ok()).toBe(true);
+  expect((await amount.json()).result.nextReviewDate.slice(0, 10)).toBe(
+    "2027-02-02",
+  );
+  const missing = await context.request.post("/api/action", {
+    headers,
+    data: {
+      action: "grant",
+      data: {
+        personId: person.id,
+        scheme: "CHAS renewal",
+        status: "Submitted",
+      },
+    },
+  });
+  expect(missing.status()).toBe(400);
+  const unauth = await context.request.post("/api/jobs/notifications");
+  expect(unauth.status()).toBe(401);
+  const disabled = await context.request.post("/api/jobs/notifications", {
+    headers: {
+      Authorization:
+        "Bearer fictional-notification-job-token-at-least-32-characters",
+    },
+  });
+  expect(disabled.ok()).toBe(true);
+  expect((await disabled.json()).configured).toBe(false);
+  await page.goto("/settings");
+  await expect(
+    page.getByText("Email notifications are not configured.", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Send Test Email", exact: true }),
+  ).toBeDisabled();
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "logout" },
+  });
+  expect((await context.request.get("/api/notifications")).status()).toBe(401);
+  for (const username of ["scoped.staff", "scoped.manager", "scoped.reader"]) {
+    await context.request.post("/api/auth", {
+      headers,
+      data: { action: "login", username, password },
+    });
+    expect((await context.request.get("/api/notifications")).status()).toBe(
+      403,
+    );
+  }
+});
+
+test("dashboard and follow-up dialogs fit desktop, tablet and phone screens", async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: "http://127.0.0.1:3100" };
+  expect(
+    (
+      await context.request.post("/api/auth", {
+        headers,
+        data: { action: "login", username: "fake.admin", password },
+      })
+    ).ok(),
+  ).toBe(true);
+  for (const width of [1440, 1024, 768, 390, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/dashboard");
+    await expect(
+      page.getByRole("heading", { name: "P3H Dashboard", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "My Tasks Today", exact: true }),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({
+      path: `test-results/upgrade-dashboard-${width}.png`,
+      fullPage: true,
+    });
+    const complete = page
+      .getByRole("button", { name: "Mark Follow-up Done", exact: true })
+      .first();
+    await expect(complete).toBeVisible();
+    await complete.click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    const bounds = await dialog.boundingBox();
+    expect(bounds!.width).toBeLessThanOrEqual(width - 20);
+    expect(bounds!.height).toBeLessThanOrEqual(900 - 32);
+    await page.getByLabel("Outcome", { exact: true }).selectOption("Other");
+    await page.getByLabel("Notes (optional)").fill("Fictional tablet review");
+    await page.screenshot({
+      path: `test-results/upgrade-follow-up-${width}.png`,
+    });
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+  }
 });

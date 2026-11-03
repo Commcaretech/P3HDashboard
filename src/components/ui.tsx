@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { calculateFollowUp } from "@/lib/follow-up";
 import Link from "next/link";
 import { Children, isValidElement } from "react";
 export type Field = {
@@ -80,6 +81,37 @@ export function Editor({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [tab, setTab] = useState(fields[0]?.section ?? "Details");
+  const isGrant =
+    fields.some((f) => f.key === "scheme") &&
+    fields.some((f) => f.key === "followUpFrequency");
+  const plan = isGrant
+    ? calculateFollowUp(
+        values.scheme,
+        values.submissionDate || values.applicationDate,
+        values.followUpFrequency || "Automatic",
+      )
+    : null;
+  const changeValue = (key: string, value: string) => {
+    const next = { ...values, [key]: value };
+    if (
+      isGrant &&
+      ([
+        "scheme",
+        "applicationDate",
+        "submissionDate",
+        "followUpFrequency",
+      ].includes(key) ||
+        (key === "resolution" && value === "Open") ||
+        (key === "status" && !next.nextReviewDate))
+    ) {
+      next.nextReviewDate = calculateFollowUp(
+        next.scheme,
+        next.submissionDate || next.applicationDate,
+        next.followUpFrequency || "Automatic",
+      ).date;
+    }
+    setValues(next);
+  };
   const sections = [...new Set(fields.map((f) => f.section ?? "Details"))];
   const dirty = fields.some(
     (f) => values[f.key] !== String(initial[f.key] ?? ""),
@@ -148,6 +180,13 @@ export function Editor({
             {error}
           </p>
         )}
+        {isGrant && (
+          <p className="notice" role="status">
+            {values.nextReviewDate
+              ? `Next follow-up: ${values.nextReviewDate}. ${values.nextReviewDate === plan?.date ? `Calculated from ${plan.label}.` : "Staff-selected date override."}`
+              : "Enter an application or submission date. Other schemes require a frequency or a one-time follow-up date."}
+          </p>
+        )}
         <div className="form-grid">
           {fields.map((f) => (
             <label
@@ -163,26 +202,28 @@ export function Editor({
                   label={f.label}
                   value={values[f.key]}
                   options={f.options ?? []}
-                  onChange={(v) => setValues({ ...values, [f.key]: v })}
+                  onChange={(v) => changeValue(f.key, v)}
                 />
               ) : f.type === "textarea" ? (
                 <textarea
                   aria-label={f.label}
                   aria-required={f.required}
+                  aria-invalid={Boolean(
+                    error && (error.includes(f.key) || error.includes(f.label)),
+                  )}
                   readOnly={f.key === "comparison" || f.key === "original"}
                   value={values[f.key]}
-                  onChange={(e) =>
-                    setValues({ ...values, [f.key]: e.target.value })
-                  }
+                  onChange={(e) => changeValue(f.key, e.target.value)}
                 />
               ) : f.type === "select" ? (
                 <select
                   aria-label={f.label}
                   aria-required={f.required}
+                  aria-invalid={Boolean(
+                    error && (error.includes(f.key) || error.includes(f.label)),
+                  )}
                   value={values[f.key]}
-                  onChange={(e) =>
-                    setValues({ ...values, [f.key]: e.target.value })
-                  }
+                  onChange={(e) => changeValue(f.key, e.target.value)}
                 >
                   {f.options?.map((o) => (
                     <option key={o.value} value={o.value}>
@@ -194,14 +235,15 @@ export function Editor({
                 <input
                   aria-label={f.label}
                   aria-required={f.required}
+                  aria-invalid={Boolean(
+                    error && (error.includes(f.key) || error.includes(f.label)),
+                  )}
                   type={f.type ?? "text"}
                   step={f.type === "number" ? "any" : undefined}
                   value={values[f.key]}
                   maxLength={f.type === "text" || !f.type ? 12000 : undefined}
                   list={f.options ? `field-${f.key}` : undefined}
-                  onChange={(e) =>
-                    setValues({ ...values, [f.key]: e.target.value })
-                  }
+                  onChange={(e) => changeValue(f.key, e.target.value)}
                 />
               )}{" "}
               {f.type !== "select" && f.type !== "chips" && f.options && (
@@ -212,6 +254,9 @@ export function Editor({
                 </datalist>
               )}
               {f.hint && <small>{f.hint}</small>}
+              {error && (error.includes(f.key) || error.includes(f.label)) && (
+                <small className="error">{error}</small>
+              )}
             </label>
           ))}
         </div>

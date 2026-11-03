@@ -1,12 +1,26 @@
+# Updated daily care-management workflows
+
+- **Dashboard:** review My Tasks Today, overdue follow-ups, today's tasks and upcoming caregiver birthdays. Ordinary staff see their assigned tasks first; managers review permitted centre workload. Use the birthday centre/owner filters to narrow the next 30 days.
+- **Add Caregiver:** open the form from Dashboard or Caregivers. Enter Member ID, name, date of birth, optional contact number, preferred language, centre and assigned staff. Less common fields remain available in Health, Languages & interests and Notes tabs. Save opens the new profile. Validation keeps entered values. Existing Member IDs are rejected as duplicates; use search and the import comparison tools before creating a possible duplicate.
+- **Care Relationships:** open the caregiver profile, choose Care Relationships and link an existing care recipient and relationship. Both records remain separate.
+- **Add Grant/Referral:** select a person and scheme, enter submission date or application date and review the calculated follow-up. South West CDC uses two calendar months, CHAS fourteen days, and HPC+, MOW, Counselling and SMF seven days. For another scheme select a frequency or one-time date. You can override Next review date and enter a reason. Choose a case owner and save.
+- **Mark Follow-up Done:** available on Dashboard, My Tasks and Alerts. Enter the date the follow-up actually happened, outcome and optional notes. Review the next date. Choose Resolved only when no more follow-up is required. Approval alone may still need payout follow-up. Save immediately refreshes the task list.
+- **Follow-up History:** open a caregiver profile to review completed actions and staff attribution. Grant rows also contain the history under their scheme details. Completion never deletes old reminders.
+- **Reopen a resolved referral:** edit it under Grants & Referrals, change Follow-up resolution to Open, review the next date and save. Underlying imported statuses remain intact.
+- **Snooze:** delays the reminder without changing its original due date. Editing its source date clears the old snooze; unrelated edits retain it.
+- **Email reminders:** administrators set staff email, notification preferences and centre permissions in Settings. Missing email configuration is shown explicitly. In-app tasks remain usable. An accepted test email still needs an inbox check.
+
+All existing programme matching, registration, Excel review/import, reports, search and audit pages retain their URLs. Existing data types still use Member and Care Recipient internally.
+
 # Updated staff workspace
 
-The existing Next.js, Prisma and Excel import architecture is retained. Records are never reseeded or reset during startup. Both database providers use the additive `202610120002_staff_workflows` migration.
+The existing Next.js, Prisma and Excel import architecture is retained. Records are never reseeded or reset during startup. Both database providers retain the earlier `202610120002_staff_workflows` migration and add `202610260001_follow_up_notifications`.
 
 ## Daily work
 
 Start with **Dashboard → Needs attention**. Alert dates are grouped into Overdue, Today, Next 7 Days and Next 30 Days. Open the action or person directly. Analytics use recorded data below the action area; interests and detailed operational analysis remain in Reports.
 
-**My Work** uses case ownership and alert assignment. Edit a person's Overview and choose **Assigned staff / Case owner**. A pending alert without an explicit assignee also appears in its case owner's work. Birthday reminders inherit the person's assignee. Grant reminders inherit the grant's assignee. Managers and administrators can see workload counts within their permitted record scope.
+**My Tasks** uses case ownership and alert assignment. Edit a person's Overview and choose **Assigned staff / Case owner**. A pending alert without an explicit assignee also appears in its case owner's work. Birthday reminders inherit the person's assignee. Grant reminders inherit the grant's assignee. Managers and administrators can see workload counts within their permitted record scope.
 
 Profiles show care relationships, case owner, next action, outstanding alerts, support and participation counts. Completeness weights language, interests and recipient conditions/mobility most heavily; it does not mean an assessment or care plan is complete.
 
@@ -40,7 +54,7 @@ Permissions are checked on authenticated reads and inside write transactions. Th
 
 Members and Care Recipients query `/api/people` with server pagination, sorting and combined filters (20, 50 or 100 rows). Their initial workspace response omits the full people/programme/grant collections. Other shared tables use local pagination and column sorting. Original workbook blobs are returned only for person profiles and the compatibility snapshot endpoint, not normal list/dashboard requests.
 
-Global suggestions use authenticated `/api/search`, a 250 ms debounce, bounded results, and centre scopes. Use Arrow Up/Down, Enter and Escape. The full search page retains the original broader category/notes search. Filters collapse behind a button and active category filters can be removed individually. Reports combine centre, condition, programme, staff and recorded-date range filters; the range refers to when a person was created. No export service or notification integration has been added.
+Global suggestions use authenticated `/api/search`, a 250 ms debounce, bounded results, and centre scopes. Use Arrow Up/Down, Enter and Escape. The full search page retains the original broader category/notes search. Filters collapse behind a button and active category filters can be removed individually. Reports combine centre, condition, programme, staff and recorded-date range filters; the range refers to when a person was created. The existing report functionality remains; optional staff reminder email setup is described in automatic-reminders.md.
 
 ## Architecture and review decisions
 
@@ -51,4 +65,4 @@ Global suggestions use authenticated `/api/search`, a 250 ms debounce, bounded r
 - `components/ui.tsx`: shared status badges, native modal, chips, action menu, skeleton and table controls.
 - Focused APIs: people lists, search suggestions and import history. Existing `/api/data` remains available for compatibility and multi-record dashboard/profile/report workflows.
 
-No additional external service, telemetry, remote asset or browser record storage was introduced. The previously authorised optional Render/Supabase deployment remains supported. The UI changes do not change the organisation's hosting choice.
+No telemetry, remote asset or browser record storage is introduced. Optional configured staff reminder emails use an HTTPS provider. The previously authorised optional Render/Supabase deployment remains supported. The UI changes do not change the organisation's hosting choice.

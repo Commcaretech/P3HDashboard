@@ -1,4 +1,8 @@
 "use client";
+import { FollowUpDialog } from "./follow-up-dialog";
+import { useState } from "react";
+import { Alert } from "@/lib/types";
+import { closedGrant } from "@/lib/follow-up";
 import Link from "next/link";
 import { Data, label, day } from "@/lib/types";
 import { alertDue, alertGroup } from "@/lib/workflow";
@@ -8,11 +12,16 @@ export default function MyWork({
   d,
   userId,
   manager,
+  write,
+  action,
 }: {
   d: Data;
   userId: string;
   manager: boolean;
+  write: boolean;
+  action: (a: string, v: Record<string, unknown>, id?: string) => Promise<void>;
 }) {
+  const [followUp, setFollowUp] = useState<Alert | null>(null);
   const cases = d.people.filter(
     (p) => p.assignedId === userId && p.status === "Active",
   );
@@ -63,7 +72,7 @@ export default function MyWork({
                 (g) =>
                   g.assignedId === userId &&
                   g.nextReviewDate &&
-                  !["Rejected", "Expired", "Completed"].includes(g.status),
+                  !closedGrant(g),
               ).length
             }
           </strong>
@@ -77,7 +86,10 @@ export default function MyWork({
           <strong>
             {
               cases.filter(
-                (p) => p.dob && birthday(new Date(p.dob), today()).days <= 30,
+                (p) =>
+                  p.kind === "Member" &&
+                  p.dob &&
+                  birthday(new Date(p.dob), today()).days <= 30,
               ).length
             }
           </strong>
@@ -86,7 +98,7 @@ export default function MyWork({
       </div>
       <h2>My follow-ups</h2>
       <Table
-        headers={["Action", "Person", "Due", "Priority"]}
+        headers={["Action", "Person", "Due", "Priority", "Complete"]}
         rows={alerts.map((a) => ({
           id: a.id,
           sort: alertDue(a),
@@ -103,9 +115,28 @@ export default function MyWork({
             ),
             day(alertDue(a)),
             a.priority,
+            write && a.grantId && a.type === "Grant review" ? (
+              <button
+                key="complete"
+                className="secondary"
+                onClick={() => setFollowUp(a)}
+              >
+                Mark Follow-up Done
+              </button>
+            ) : (
+              "?"
+            ),
           ],
         }))}
       />
+      {followUp && (
+        <FollowUpDialog
+          alert={followUp}
+          d={d}
+          action={action}
+          onClose={() => setFollowUp(null)}
+        />
+      )}
       <h2>Recently updated cases</h2>
       <Table
         headers={["Person", "Centre", "Updated", "Upcoming birthday"]}

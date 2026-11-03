@@ -1,4 +1,8 @@
 "use client";
+import { FollowUpDialog } from "./follow-up-dialog";
+import { useState } from "react";
+import { Alert } from "@/lib/types";
+import { closedGrant } from "@/lib/follow-up";
 import { Bell, CalendarDays, AlertTriangle, Cake } from "lucide-react";
 import { alertDue, alertGroup, alertGroups } from "@/lib/workflow";
 import Link from "next/link";
@@ -7,17 +11,44 @@ import { birthday, today } from "@/lib/domain";
 import { Badge, PersonLink } from "./ui";
 import { Chart } from "./charts";
 import { count } from "./common";
-export default function Overview({ d }: { d: Data }) {
+export default function Overview({
+  d,
+  userId,
+  manager,
+  write,
+  action,
+}: {
+  d: Data;
+  userId: string;
+  manager: boolean;
+  write: boolean;
+  action: (a: string, v: Record<string, unknown>, id?: string) => Promise<void>;
+}) {
+  const [followUp, setFollowUp] = useState<Alert | null>(null);
+  const [centre, setCentre] = useState(""),
+    [owner, setOwner] = useState("");
   const members = d.people.filter(
       (p) => p.kind === "Member" && p.status === "Active",
     ),
     recipients = d.people.filter(
       (p) => p.kind === "Care Recipient" && p.status === "Active",
     ),
-    pending = d.alerts.filter((a) => a.status === "Pending"),
+    pending = d.alerts.filter(
+      (a) =>
+        a.status === "Pending" &&
+        (manager ||
+          a.assignedId === userId ||
+          (!a.assignedId &&
+            d.people.some(
+              (p) => p.id === a.personId && p.assignedId === userId,
+            ))),
+    ),
     birthdays = d.people.filter(
       (p) =>
+        p.kind === "Member" &&
         p.status === "Active" &&
+        (!centre || p.centre === centre) &&
+        (!owner || p.assignedId === owner) &&
         p.dob &&
         birthday(new Date(p.dob), today()).days <= 30,
     );
@@ -38,12 +69,22 @@ export default function Overview({ d }: { d: Data }) {
     ["Active P3H Cases", members.length, "/members?status=Active"],
     [
       "Care Recipients with Dementia",
-      recipients.filter((p) =>
-        p.conditions.some((c) => c.condition.name.toLowerCase() === "dementia"),
-      ).length,
+      d.dashboardSummary?.conditions.find(
+        (c) => c.name.toLowerCase() === "dementia",
+      )?.count ??
+        recipients.filter((p) =>
+          p.conditions.some(
+            (c) => c.condition.name.toLowerCase() === "dementia",
+          ),
+        ).length,
       "/care-recipients?condition=Dementia",
     ],
-    ["Upcoming Birthdays", birthdays.length, "/reports?view=birthdays"],
+    ["Upcoming Birthdays", birthdays.length, "#upcoming-birthdays"],
+    [
+      "Applications resolved this month",
+      d.dashboardSummary?.completedThisMonth ?? 0,
+      "/grants",
+    ],
     [
       "Pending Grant Follow-ups",
       pending.filter((a) => a.type.startsWith("Grant")).length,
@@ -52,7 +93,8 @@ export default function Overview({ d }: { d: Data }) {
     ["Outstanding Alerts", pending.length, "/alerts?status=Pending"],
     [
       "Active Programmes",
-      d.programmes.filter((p) => p.status === "Active").length,
+      d.dashboardSummary?.activeProgrammes ??
+        d.programmes.filter((p) => p.status === "Active").length,
       "/programmes?status=Active",
     ],
   ];
@@ -61,40 +103,56 @@ export default function Overview({ d }: { d: Data }) {
       <div className="stat-grid action-metrics">
         {[
           {
-            name: "Pending Alerts",
-            n: pending.length,
-            detail: "Outstanding actions",
-            href: "/alerts?status=Pending",
+            name: "Pending Grants/Referrals",
+            n: d.grants.filter(
+              (g) =>
+                !closedGrant(g) &&
+                (manager ||
+                  g.assignedId === userId ||
+                  (!g.assignedId &&
+                    d.people.some(
+                      (p) => p.id === g.personId && p.assignedId === userId,
+                    ))),
+            ).length,
+            detail: "Applications with outstanding work",
+            href: "/grants?open=true",
             Icon: Bell,
           },
           {
-            name: "Due Today",
+            name: "Tasks Due Today",
             n: pending.filter((a) => alertGroup(a) === "Today").length,
             detail: "Actions scheduled today",
             href: "/alerts?time=Today",
             Icon: CalendarDays,
           },
           {
-            name: "Overdue",
-            n: pending.filter((a) => alertGroup(a) === "Overdue").length,
+            name: "Overdue Follow-ups",
+            n: pending.filter(
+              (a) => a.type.startsWith("Grant") && alertGroup(a) === "Overdue",
+            ).length,
             detail: "Follow up as soon as possible",
-            href: "/alerts?time=Overdue",
+            href: "/alerts?time=Overdue&type=Grant",
             Icon: AlertTriangle,
           },
           {
-            name: "Birthdays This Month",
-            n: d.people.filter(
-              (p) =>
-                p.status === "Active" &&
-                p.dob &&
-                p.dob.slice(5, 7) === today().slice(5, 7),
-            ).length,
-            detail: "Active people with a birthday this month",
-            href: "/reports?view=birthdays&birthdayMonth=current",
+            name: "Upcoming Birthdays",
+            n: birthdays.length,
+            detail: "Active caregivers in the next 30 days",
+            href: "#upcoming-birthdays",
             Icon: Cake,
           },
         ].map((c) => (
-          <Link key={c.name} className="stat" href={c.href}>
+          <Link
+            key={c.name}
+            className="stat"
+            href={
+              c.href.startsWith("/alerts") && !manager
+                ? c.href + "&view=my"
+                : c.href === "/grants?open=true" && !manager
+                  ? c.href + "&assigned=" + userId
+                  : c.href
+            }
+          >
             <div className="metric-label">
               <small>{c.name}</small>
               <c.Icon size={20} />
@@ -106,7 +164,7 @@ export default function Overview({ d }: { d: Data }) {
       </div>
       <section className="panel attention">
         <div className="section-head">
-          <h2>Needs attention</h2>
+          <h2>My Tasks Today</h2>
           <Link href="/alerts">View all alerts →</Link>
         </div>
         {!pending.length && (
@@ -114,7 +172,7 @@ export default function Overview({ d }: { d: Data }) {
             No outstanding alerts. Your team is up to date.
           </p>
         )}
-        {alertGroups.slice(0, 4).map((group) => {
+        {alertGroups.map((group) => {
           const items = pending
             .filter((a) => alertGroup(a) === group)
             .sort((a, b) => alertDue(a).localeCompare(alertDue(b)));
@@ -143,6 +201,14 @@ export default function Overview({ d }: { d: Data }) {
                       <small>{a.assigned?.name ?? "Unassigned"}</small>
                     </span>
                     <Badge>{a.priority}</Badge>
+                    {write && a.grantId && a.type === "Grant review" && (
+                      <button
+                        className="secondary"
+                        onClick={() => setFollowUp(a)}
+                      >
+                        Mark Follow-up Done
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -150,6 +216,69 @@ export default function Overview({ d }: { d: Data }) {
           );
         })}
       </section>
+      <section className="panel" id="upcoming-birthdays">
+        <div className="section-head">
+          <h2>Upcoming Caregiver Birthdays</h2>
+          <span>Next 30 days</span>
+        </div>
+        <div className="filters">
+          <label>
+            Centre
+            <select value={centre} onChange={(e) => setCentre(e.target.value)}>
+              <option value="">All permitted centres</option>
+              {[...new Set(members.map((p) => p.centre))]
+                .filter(Boolean)
+                .map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+            </select>
+          </label>
+          <label>
+            Assigned staff
+            <select value={owner} onChange={(e) => setOwner(e.target.value)}>
+              <option value="">All staff</option>
+              {d.staff.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {birthdays.length ? (
+          birthdays
+            .sort(
+              (a, b) =>
+                birthday(new Date(a.dob!), today()).days -
+                birthday(new Date(b.dob!), today()).days,
+            )
+            .map((p) => {
+              const b = birthday(new Date(p.dob!), today());
+              return (
+                <div className="attention-item" key={p.id}>
+                  <PersonLink id={p.id}>{label(p)}</PersonLink>
+                  <span>
+                    {b.date.slice(8, 10)}/{b.date.slice(5, 7)} ?{" "}
+                    {b.days === 0 ? "Today" : `${b.days} days remaining`}
+                  </span>
+                  <span>{p.assigned?.name ?? "Unassigned"}</span>
+                </div>
+              );
+            })
+        ) : (
+          <p className="empty">
+            No upcoming caregiver birthdays for these filters.
+          </p>
+        )}
+      </section>
+      {followUp && (
+        <FollowUpDialog
+          alert={followUp}
+          d={d}
+          action={action}
+          onClose={() => setFollowUp(null)}
+        />
+      )}
       <div className="section-head">
         <h2>Caseload and support</h2>
         <Link href="/reports">Explore reports →</Link>
@@ -168,20 +297,34 @@ export default function Overview({ d }: { d: Data }) {
           horizontal
           title="Care recipients by condition"
           href="/care-recipients"
+          values={
+            d.dashboardSummary?.conditions ??
+            count(
+              recipients.flatMap((p) =>
+                p.conditions.map((x) => x.condition.name),
+              ),
+            )
+          }
+        />
+        <Chart
+          horizontal
+          title="Caregiver preferred language"
+          href="/members"
           values={count(
-            recipients.flatMap((p) =>
-              p.conditions.map((x) => x.condition.name),
-            ),
+            members.map((p) => p.preferredLanguage || "Not recorded"),
           )}
         />
         <Chart
           horizontal
-          title="Language distribution"
-          href="/members"
+          title="Overdue follow-ups by staff"
+          href="/alerts?time=Overdue"
           values={count(
-            d.people
-              .filter((p) => p.status === "Active")
-              .flatMap((p) => p.languages.map((x) => x.language.name)),
+            pending
+              .filter(
+                (a) =>
+                  a.type.startsWith("Grant") && alertGroup(a) === "Overdue",
+              )
+              .map((a) => a.assigned?.name ?? "Unassigned"),
           )}
         />
         <Chart

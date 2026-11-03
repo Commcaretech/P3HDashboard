@@ -146,9 +146,10 @@ export default function Profile({
           "Interests",
           "Care Relationships",
           "Programmes",
-          "Grants & Support",
+          "Grants & Referrals",
           "Alerts",
           "Notes",
+          "Follow-up History",
           "History",
         ].map((t) => (
           <button
@@ -161,10 +162,37 @@ export default function Profile({
         ))}
       </div>
       <section className="panel">
+        {tab === "Follow-up History" && (
+          <>
+            <h3>Completed grant and referral follow-ups</h3>
+            {relatedGrants.flatMap((g) =>
+              (g.followUps ?? []).map((h) => (
+                <div key={h.id} className="attention-item">
+                  <div>
+                    <strong>
+                      {g.scheme.name} ? {h.outcome}
+                    </strong>
+                    <small>
+                      {day(h.completedAt)} ?{" "}
+                      {d.staff.find((s) => s.id === h.completedBy)?.name ??
+                        "Staff"}
+                      {h.resolved ? " ? Resolved" : ""}
+                    </small>
+                    <p className="preserve">{h.notes || "No notes recorded"}</p>
+                  </div>
+                </div>
+              )),
+            )}
+            {!relatedGrants.some((g) => g.followUps?.length) && (
+              <p className="empty">No completed follow-ups recorded.</p>
+            )}
+          </>
+        )}
         {tab === "Overview" && (
           <dl className="detail-grid">
             {[
               ["Date of birth", day(p.dob)],
+              ["Contact number", p.contactNumber],
               ["Centre", p.centre],
               ["Gender", p.gender],
               ["Race", p.race],
@@ -373,7 +401,7 @@ export default function Profile({
             </Link>
           </>
         )}
-        {tab === "Grants & Support" && (
+        {tab === "Grants & Referrals" && (
           <>
             {write && (
               <button onClick={() => grant(undefined, p.id)}>

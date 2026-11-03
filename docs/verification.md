@@ -1,3 +1,5 @@
+> Historical verification record. For the 26 October care-management upgrade, see [current upgrade verification](upgrade-verification.md). Earlier feature and automation descriptions below refer to the version tested on their stated dates.
+
 # Verification — 11 October 2026
 
 Executed locally against the final application and isolated test databases.

@@ -113,6 +113,7 @@ export const personSchema = z
     memberId: z.string().trim().max(100).default(""),
     name: text,
     alias: text,
+    contactNumber: text,
     dob: date,
     centre: text,
     gender: text,
@@ -214,7 +215,7 @@ export const grantStatuses = [
 export const grantSchema = z.object({
   personId: z.string().min(1),
   scheme: z.string().trim().min(1).max(200),
-  status: z.enum(grantStatuses),
+  status: z.string().trim().min(1).max(100),
   applicationDate: date,
   submissionDate: date,
   approvalDate: date,

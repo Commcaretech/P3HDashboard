@@ -7,16 +7,21 @@ import {
 import { NextRequest, NextResponse } from "next/server";
 import { db, personInclude, programmeInclude } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { dashboardData } from "@/lib/dashboard";
 import { can } from "@/lib/domain";
-import { refreshAlerts } from "@/lib/alerts";
+
 export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   try {
     const u = await requireUser();
+    if (req.nextUrl.searchParams.get("section") === "dashboard")
+      return NextResponse.json(await dashboardData(u), {
+        headers: { "Cache-Control": "private, no-store" },
+      });
     const tableOnly = ["members", "care-recipients"].includes(
       req.nextUrl.searchParams.get("section") ?? "",
     );
-    await refreshAlerts();
+
     const [people, programmes, grants, alerts, schemes, staff, audit] =
       await Promise.all([
         tableOnly
@@ -57,6 +62,7 @@ export async function GET(req: NextRequest) {
               include: {
                 scheme: true,
                 assigned: { select: { name: true } },
+                followUps: { orderBy: { completedAt: "desc" } },
               },
               orderBy: { updatedAt: "desc" },
             }),
@@ -73,6 +79,13 @@ export async function GET(req: NextRequest) {
             role: true,
             active: true,
             username: true,
+            ...(u.role === "Admin"
+              ? {
+                  email: true,
+                  emailNotifications: true,
+                  recipientBirthdays: true,
+                }
+              : {}),
             allCentres: true,
             allowedCentres: true,
           },

@@ -1,4 +1,5 @@
 "use client";
+import NotificationSettings from "./notification-settings";
 import MyWork from "./my-work";
 import GlobalSearch from "./global-search";
 import SearchPage from "./searchpage";
@@ -50,12 +51,12 @@ import ImportHistory from "./import-history";
 import ImportWizard from "./import-wizard";
 const nav = [
   ["dashboard", "Dashboard", LayoutDashboard],
-  ["my-work", "My Work", Users],
-  ["members", "Members", Users],
+  ["my-work", "My Tasks", Users],
+  ["members", "Caregivers", Users],
   ["care-recipients", "Care Recipients", HeartHandshake],
   ["programmes", "Programmes", CalendarDays],
   ["matching", "Programme Matching", ScanSearch],
-  ["grants", "Grants & Support", HandCoins],
+  ["grants", "Grants & Referrals", HandCoins],
   ["alerts", "Alerts", Bell],
   ["import", "Import Data", Upload],
   ["reports", "Reports", ChartNoAxesCombined],
@@ -121,7 +122,14 @@ export default function DashboardApp({
     id?: string,
     version?: string,
   ) => {
-    await request("/api/action", { action, data: values, id, version });
+    const saved = await request("/api/action", {
+      action,
+      data: values,
+      id,
+      version,
+    });
+    if (action === "person" && !id && saved.result?.id)
+      router.push(`/people/${saved.result.id}`);
     await load();
     setNotice("Changes saved.");
   };
@@ -158,15 +166,21 @@ export default function DashboardApp({
   const u = auth.user,
     write = can(u.role, "write");
   const title =
-    section === "people"
-      ? "Person profile"
-      : (nav.find((n) => n[0] === section)?.[1] ?? "Search");
+    section === "dashboard"
+      ? "P3H Dashboard"
+      : section === "people"
+        ? "Person profile"
+        : (nav.find((n) => n[0] === section)?.[1] ?? "Search");
   const restricted =
     (section === "audit" && !can(u.role, "audit")) ||
     (section === "import" && !write);
   const personEditor = (p?: Person, kind = "Member") =>
     setEdit({
-      title: p ? `Edit ${label(p)}` : `Add ${kind.toLowerCase()}`,
+      title: p
+        ? `Edit ${label(p)}`
+        : kind === "Member"
+          ? "Add Caregiver"
+          : "Add care recipient",
       fields: [
         ...personFields(p?.kind ?? kind),
         {
@@ -279,7 +293,12 @@ export default function DashboardApp({
       fields: grantFields(data),
       initial: g
         ? grantValues(g)
-        : { status: "Not Applied", personId: personId ?? "" },
+        : {
+            status: "Submitted",
+            personId: personId ?? "",
+            followUpFrequency: "Automatic",
+            resolution: "Open",
+          },
       action: "grant",
       id: g?.id,
       version: g?.updatedAt,
@@ -400,7 +419,7 @@ export default function DashboardApp({
               <h1>{title}</h1>
               <p className="muted">
                 {section === "dashboard"
-                  ? `Hello, ${u.name}. Here is what needs your attention today.`
+                  ? `Good ${Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Singapore", hour: "2-digit", hour12: false }).format(new Date())) < 12 ? "morning" : "afternoon"}, ${u.name}. Here is what needs your attention today.`
                   : "Maintain accurate records and coordinate support."}
               </p>
             </div>
@@ -440,9 +459,45 @@ export default function DashboardApp({
             <LoadingSkeleton />
           ) : (
             <>
-              {section === "dashboard" && <Overview d={data} />}
+              {section === "dashboard" && (
+                <>
+                  <div className="actions">
+                    {write && (
+                      <>
+                        <button onClick={() => personEditor()}>
+                          Add Caregiver
+                        </button>
+                        <button
+                          className="secondary"
+                          onClick={() => grantEditor()}
+                        >
+                          Add Grant/Referral
+                        </button>
+                      </>
+                    )}
+                    <Link href="/alerts">
+                      Notifications (
+                      {data.alerts.filter((a) => a.status === "Pending").length}
+                      )
+                    </Link>
+                  </div>
+                  <Overview
+                    d={data}
+                    userId={u.id}
+                    manager={can(u.role, "audit")}
+                    write={write}
+                    action={action}
+                  />
+                </>
+              )}
               {section === "my-work" && (
-                <MyWork d={data} userId={u.id} manager={can(u.role, "audit")} />
+                <MyWork
+                  d={data}
+                  userId={u.id}
+                  manager={can(u.role, "audit")}
+                  write={write}
+                  action={action}
+                />
               )}
               {(section === "members" || section === "care-recipients") && (
                 <People
@@ -501,6 +556,7 @@ export default function DashboardApp({
                   action={safeAction}
                   onCreate={createAlert}
                   userId={u.id}
+                  followUpAction={action}
                 />
               )}
               {section === "import" && (
@@ -513,6 +569,9 @@ export default function DashboardApp({
               {section === "audit" && <AuditLog d={data} />}
               {section === "settings" && (
                 <section className="panel">
+                  {can(u.role, "admin") && (
+                    <NotificationSettings staff={data.staff} />
+                  )}
                   <h2>Staff accounts</h2>
                   <p>
                     Sessions last 8 hours. Admin manages accounts; Manager can
@@ -537,6 +596,7 @@ export default function DashboardApp({
                     headers={[
                       "Staff",
                       "Username",
+                      "Email",
                       "Role",
                       "Status",
                       "Centre access",
@@ -548,56 +608,136 @@ export default function DashboardApp({
                       cells: [
                         s.name,
                         s.username,
+                        s.email ?? "?",
                         <Badge key="role">{s.role}</Badge>,
                         s.active ? "Active" : "Inactive",
                         s.role === "Admin" || s.allCentres
                           ? "All centres"
                           : s.allowedCentres.map((c) => c.centre).join(", "),
                         can(u.role, "admin") ? (
-                          <button
-                            key="access"
-                            className="secondary"
-                            onClick={() =>
-                              setEdit({
-                                title: "Centre permissions",
-                                action: "userAccess",
-                                id: s.id,
-                                fields: [
-                                  {
-                                    key: "allCentres",
-                                    label: "Access",
-                                    type: "select",
-                                    options: [
-                                      {
-                                        value: "All centres",
-                                        label: "All centres",
-                                      },
-                                      {
-                                        value: "Selected centres",
-                                        label: "Selected centres",
-                                      },
-                                    ],
+                          <div key="access" className="row-actions">
+                            <button
+                              className="secondary"
+                              onClick={() =>
+                                setEdit({
+                                  title: "Staff account and notifications",
+                                  action: "staffSettings",
+                                  id: s.id,
+                                  fields: [
+                                    {
+                                      key: "name",
+                                      label: "Staff name",
+                                      required: true,
+                                    },
+                                    { key: "email", label: "Staff email" },
+                                    {
+                                      key: "emailNotifications",
+                                      label: "Email notifications",
+                                      type: "select",
+                                      options: ["Enabled", "Disabled"].map(
+                                        (value) => ({ value, label: value }),
+                                      ),
+                                    },
+                                    {
+                                      key: "recipientBirthdays",
+                                      label:
+                                        "Care recipient birthday reminders",
+                                      type: "select",
+                                      options: ["Enabled", "Disabled"].map(
+                                        (value) => ({ value, label: value }),
+                                      ),
+                                    },
+                                    {
+                                      key: "active",
+                                      label: "Account status",
+                                      type: "select",
+                                      options: ["Active", "Inactive"].map(
+                                        (value) => ({ value, label: value }),
+                                      ),
+                                    },
+                                    {
+                                      key: "role",
+                                      label: "Role",
+                                      type: "select",
+                                      options: [
+                                        "Admin",
+                                        "Manager",
+                                        "Staff",
+                                        "Read Only",
+                                      ].map((value) => ({
+                                        value,
+                                        label: value,
+                                      })),
+                                    },
+                                    {
+                                      key: "password",
+                                      label:
+                                        "New password (optional, at least 12 characters)",
+                                      type: "password",
+                                    },
+                                  ],
+                                  initial: {
+                                    name: s.name,
+                                    email: s.email ?? "",
+                                    emailNotifications: s.emailNotifications
+                                      ? "Enabled"
+                                      : "Disabled",
+                                    recipientBirthdays: s.recipientBirthdays
+                                      ? "Enabled"
+                                      : "Disabled",
+                                    active: s.active ? "Active" : "Inactive",
+                                    role: s.role,
                                   },
-                                  {
-                                    key: "centres",
-                                    label: "Allowed centres",
-                                    type: "chips",
-                                    hint: "Use exact centre names from case records",
+                                })
+                              }
+                            >
+                              Edit account
+                            </button>
+                            <button
+                              key="access"
+                              className="secondary"
+                              onClick={() =>
+                                setEdit({
+                                  title: "Centre permissions",
+                                  action: "userAccess",
+                                  id: s.id,
+                                  fields: [
+                                    {
+                                      key: "allCentres",
+                                      label: "Access",
+                                      type: "select",
+                                      options: [
+                                        {
+                                          value: "All centres",
+                                          label: "All centres",
+                                        },
+                                        {
+                                          value: "Selected centres",
+                                          label: "Selected centres",
+                                        },
+                                      ],
+                                    },
+                                    {
+                                      key: "centres",
+                                      label: "Allowed centres",
+                                      type: "chips",
+                                      hint: "Use exact centre names from case records",
+                                    },
+                                  ],
+                                  initial: {
+                                    allCentres: s.allCentres
+                                      ? "All centres"
+                                      : "Selected centres",
+                                    centres: s.allowedCentres
+                                      .map((c) => c.centre)
+                                      .join(", "),
                                   },
-                                ],
-                                initial: {
-                                  allCentres: s.allCentres
-                                    ? "All centres"
-                                    : "Selected centres",
-                                  centres: s.allowedCentres
-                                    .map((c) => c.centre)
-                                    .join(", "),
-                                },
-                              })
-                            }
-                          >
-                            Edit access
-                          </button>
+                                })
+                              }
+                            >
+                              Edit access
+                            </button>
+                          </div>
                         ) : (
                           "?"
                         ),

@@ -91,7 +91,7 @@ When ready to use approved real data:
 2. Choose **Import Data** and select your workbook in the browser.
 3. Review the column mapping and parsed records. Correct issues and care-recipient suggestions.
 4. Choose Import, Update existing or Skip for each row and confirm the final import.
-5. Open **Members**, inspect the imported information, then refresh and check it remains.
+5. Open **Caregivers**, inspect the imported information, then refresh and check it remains.
 
 In this hosted configuration, the workbook and personal records travel to Render and Supabase over HTTPS; they no longer stay only on your laptop. Source files and GitHub must not contain the workbook.
 
@@ -101,7 +101,7 @@ Supabase Free has no included automatic backups. Before relying on the system fo
 
 The hosting preparation in this checkout has been checked locally. A live Supabase migration, Render deployment and hosted restore have not been tested without your accounts.
 
-Render sleeps after 15 idle minutes, and the first visit can take about a minute. Supabase Free may pause after a week of inactivity; resume it in the Supabase dashboard if necessary. Alerts refresh when the application is used; no emails are sent and no continuous background worker runs. Use provider subdomains to avoid paying for a custom domain.
+Hosting plans may suspend inactive services; check the provider's current availability limits. Reminder generation and optional emails use the independent HTTPS job in [automatic reminder setup](automatic-reminders.md). Do not rely on a resident worker in a free web service. Monitor the scheduled job and missed runs. Provider credentials, a verified sender, and an organisation-approved backup/retention procedure are required before enabling real email.
 
 References: [Render free restrictions](https://render.com/docs/free), [Supabase free limits](https://supabase.com/pricing).
 
@@ -125,3 +125,7 @@ For future model changes, update both Prisma schemas and create a PostgreSQL mig
 ## Updating the staff workspace
 
 Publish the updated source, including both schemas and `prisma/cloud/migrations/202610120002_staff_workflows/migration.sql`, then redeploy using the existing cloud commands. `cloud:start` applies additive migrations before starting. Do not reset Supabase or run local SQLite migrations against it. Existing staff accounts keep their prior access; review centre scopes under Settings after deployment. See [staff workflows](staff-workflows.md) for the new screens and access rules.
+
+## Reminder jobs and backups
+
+For the upgrade, follow [automatic reminders](automatic-reminders.md) and [migration/recovery](upgrade-migration.md). Current provider documentation: [Render free-service restrictions](https://render.com/docs/free), [Render cron jobs and UTC schedules](https://render.com/docs/cronjobs), and [Supabase backups](https://supabase.com/docs/guides/platform/backups). The email adapter uses HTTPS rather than SMTP. Keep separately stored, protected database exports and rehearse restores; do not assume the hosting plan supplies a verified backup.

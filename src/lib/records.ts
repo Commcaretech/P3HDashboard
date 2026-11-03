@@ -27,9 +27,17 @@ async function vocabulary(
   tx: Tx,
   type: "language" | "interest" | "medicalCondition",
   values: string[],
+  existing: { id: string; name: string }[] = [],
 ) {
   const ids: string[] = [];
   for (const name of values) {
+    const preserved = existing.find(
+      (x) => x.name.toLowerCase() === name.toLowerCase(),
+    );
+    if (preserved) {
+      ids.push(preserved.id);
+      continue;
+    }
     const item =
       type === "language"
         ? await tx.language.upsert({
@@ -60,7 +68,40 @@ export async function savePerson(
   raw?: Prisma.InputJsonValue,
   version?: string,
 ) {
-  const v = personSchema.parse(input);
+  const existing = id
+    ? await tx.person.findUniqueOrThrow({
+        where: { id },
+        include: personInclude,
+      })
+    : null;
+  const original = existing
+    ? {
+        ...existing,
+        memberId: existing.memberId ?? "",
+        assignedId: existing.assignedId ?? "",
+        dob: existing.dob?.toISOString().slice(0, 10) ?? "",
+        onboardingDate:
+          existing.onboardingDate?.toISOString().slice(0, 10) ?? "",
+        languages: existing.languages
+          .filter((x) => x.mode === "Spoken / understood")
+          .map((x) => x.language.name)
+          .join(","),
+        spokenLanguages: existing.languages
+          .filter((x) => x.mode === "Spoken")
+          .map((x) => x.language.name)
+          .join(","),
+        understoodLanguages: existing.languages
+          .filter((x) => x.mode === "Understood")
+          .map((x) => x.language.name)
+          .join(","),
+        interests: existing.interests.map((x) => x.interest.name).join(","),
+        conditions: existing.conditions.map((x) => x.condition.name).join(","),
+      }
+    : {};
+  const v = personSchema.parse({
+    ...original,
+    ...(input as Record<string, unknown>),
+  });
   const {
     languages,
     spokenLanguages,
@@ -95,9 +136,27 @@ export async function savePerson(
   const p = id
     ? await tx.person.update({ where: { id }, data })
     : await tx.person.create({ data });
-  await tx.personLanguage.deleteMany({ where: { personId: p.id } });
-  await tx.personInterest.deleteMany({ where: { personId: p.id } });
-  await tx.personCondition.deleteMany({ where: { personId: p.id } });
+  const supplied = new Set(Object.keys(input as Record<string, unknown>));
+  const touched = {
+    language:
+      !before ||
+      [
+        "languages",
+        "spokenLanguages",
+        "understoodLanguages",
+        "preferredLanguage",
+      ].some((key) => supplied.has(key)),
+    interest: !before || supplied.has("interests"),
+    medicalCondition:
+      !before ||
+      ["conditions", "primaryCondition"].some((key) => supplied.has(key)),
+  };
+  if (touched.language)
+    await tx.personLanguage.deleteMany({ where: { personId: p.id } });
+  if (touched.interest)
+    await tx.personInterest.deleteMany({ where: { personId: p.id } });
+  if (touched.medicalCondition)
+    await tx.personCondition.deleteMany({ where: { personId: p.id } });
   for (const [type, values] of [
     [
       "language",
@@ -113,7 +172,19 @@ export async function savePerson(
       categories([conditions, v.primaryCondition].filter(Boolean).join(",")),
     ],
   ] as const) {
-    for (const categoryId of await vocabulary(tx, type, values)) {
+    if (!touched[type]) continue;
+    const existingVocabulary =
+      type === "language"
+        ? before?.languages.map((x) => x.language)
+        : type === "interest"
+          ? before?.interests.map((x) => x.interest)
+          : before?.conditions.map((x) => x.condition);
+    for (const categoryId of await vocabulary(
+      tx,
+      type,
+      values,
+      existingVocabulary,
+    )) {
       if (type === "language") {
         const category = await tx.language.findUniqueOrThrow({
           where: { id: categoryId },
@@ -141,7 +212,13 @@ export async function savePerson(
         });
       if (type === "medicalCondition")
         await tx.personCondition.create({
-          data: { personId: p.id, conditionId: categoryId },
+          data: {
+            personId: p.id,
+            conditionId: categoryId,
+            notes:
+              before?.conditions.find((c) => c.conditionId === categoryId)
+                ?.notes ?? "",
+          },
         });
     }
   }

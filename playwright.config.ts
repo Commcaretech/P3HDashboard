@@ -18,6 +18,9 @@ export default defineConfig({
     env: {
       DATABASE_URL: `file:${resolve("data/e2e.db").replace(/\\/g, "/")}`,
       NEXT_TELEMETRY_DISABLED: "1",
+      EMAIL_ENABLED: "false",
+      NOTIFICATION_JOB_SECRET:
+        "fictional-notification-job-token-at-least-32-characters",
     },
   },
   reporter: "list",

@@ -63,7 +63,7 @@ export default function People({
         </p>
         {write && (
           <button onClick={() => onEdit(undefined, kind)}>
-            + Add {kind.toLowerCase()}
+            + Add {kind === "Member" ? "Caregiver" : "care recipient"}
           </button>
         )}
       </div>

@@ -1,4 +1,5 @@
 "use client";
+import { closedGrant } from "@/lib/follow-up";
 import { Data, Grant, label, day } from "@/lib/types";
 import { Table, Badge, PersonLink } from "./ui";
 import { useFilters, FilterBar } from "./common";
@@ -26,10 +27,18 @@ export default function Grants({
           .join(" ")
           .toLowerCase()
           .includes(f.q.toLowerCase())) &&
+      (!f.open || !closedGrant(g)) &&
       (!f.status || g.status === f.status) &&
       (!f.assigned ||
-        g.assignedId === f.assigned ||
-        d.staff.find((s) => s.id === g.assignedId)?.name === f.assigned) &&
+        (g.assignedId ||
+          d.people.find((p) => p.id === g.personId)?.assignedId) ===
+          f.assigned ||
+        d.staff.find(
+          (s) =>
+            s.id ===
+            (g.assignedId ||
+              d.people.find((p) => p.id === g.personId)?.assignedId),
+        )?.name === f.assigned) &&
       (!f.scheme || g.scheme.name === f.scheme),
   );
   return (
@@ -99,6 +108,28 @@ export default function Grants({
                 </li>
               </ol>
               <p className="preserve">{g.notes}</p>
+              <p>
+                {g.resolvedAt
+                  ? `Resolved ${day(g.resolvedAt)}`
+                  : "Open follow-up workflow"}
+              </p>
+              {g.followUps?.map((h) => (
+                <div key={h.id}>
+                  <strong>
+                    {day(h.completedAt)} ? {h.outcome}
+                  </strong>
+                  <p>
+                    Completed by{" "}
+                    {d.staff.find((s) => s.id === h.completedBy)?.name ??
+                      "Staff"}
+                    {h.resolved ? " ? Resolved" : ""}
+                  </p>
+                  <p className="preserve">{h.notes}</p>
+                  {h.nextDate && (
+                    <small>Next follow-up: {day(h.nextDate)}</small>
+                  )}
+                </div>
+              ))}
             </details>,
             <PersonLink key="person" id={g.personId}>
               {label(d.people.find((p) => p.id === g.personId)!)}
@@ -106,7 +137,9 @@ export default function Grants({
             <Badge key="status">{g.status}</Badge>,
             `${day(g.nextReviewDate)} / ${day(g.expiryDate)}`,
             g.amount === null ? "—" : `S$${g.amount.toFixed(2)}`,
-            g.assigned?.name ?? "Unassigned",
+            g.assigned?.name ??
+              d.people.find((p) => p.id === g.personId)?.assigned?.name ??
+              "Unassigned",
             write ? (
               <button
                 key="edit"
