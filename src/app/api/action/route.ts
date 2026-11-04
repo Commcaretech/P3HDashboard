@@ -15,6 +15,7 @@ import { savePerson, saveProgramme, audit } from "@/lib/records";
 import { grantSchema, roles, parseDate, today } from "@/lib/domain";
 import { reconcileAlerts, refreshAlerts } from "@/lib/alerts";
 import { needsReview, nextOccurrence } from "@/lib/programme-source";
+import { mobilityCompatible } from "@/lib/matching";
 import { calculateFollowUp, closedGrant } from "@/lib/follow-up";
 import { completeFollowUp } from "@/lib/follow-up-service";
 const extraResolutionOpen = (data: Record<string, unknown>) =>
@@ -143,7 +144,17 @@ export async function POST(req: NextRequest) {
           }
           if (b.action === "programme") {
             if (b.id) await requireProgrammeAccess(tx, u, b.id);
-            const centre = String(b.data.centre ?? "").trim();
+            const currentProgramme = b.id
+              ? await tx.programme.findUnique({
+                  where: { id: b.id },
+                  include: { external: true },
+                })
+              : null;
+            const centre = String(
+              currentProgramme?.external
+                ? currentProgramme.centre
+                : (b.data.centre ?? ""),
+            ).trim();
             if (!centreAllowed(u, centre))
               throw new Error(
                 "Your centre permissions do not permit this record.",
@@ -580,6 +591,7 @@ export async function POST(req: NextRequest) {
               where: { id: v.programmeId },
               include: {
                 participations: true,
+                review: true,
                 external: { include: { occurrences: true } },
                 languages: true,
                 interests: true,
@@ -591,6 +603,25 @@ export async function POST(req: NextRequest) {
             });
             if (person.status === "Archived" || p.status !== "Active")
               throw new Error("Choose active records");
+            if (
+              v.status === "Registered" &&
+              p.external &&
+              !mobilityCompatible(person.mobility, p.mobility)
+            )
+              throw new Error(
+                "Programme mobility suitability has not been established for this participant.",
+              );
+            if (
+              v.status === "Registered" &&
+              p.external &&
+              p.review &&
+              p.review.audience !== "Both" &&
+              p.review.audience !==
+                (person.kind === "Member" ? "Caregivers" : "Care Recipients")
+            )
+              throw new Error(
+                "This programme has not been reviewed for the selected participant audience.",
+              );
             if (
               v.status === "Registered" &&
               p.external &&

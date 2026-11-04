@@ -133,3 +133,7 @@ For the upgrade, follow [automatic reminders](automatic-reminders.md) and [migra
 ## Manual programme catalogue sync
 
 See [programme sync setup](programme-sync-setup.md) for server variables, centre mapping, additive migration 202611040001_programme_sync, deployment and rollback.
+
+## Programme catalogue and review upgrade
+
+Follow [Programme Catalogue and suitability reviews](programme-catalogue-review.md) for additive migration `202611040002_programme_review`, source eligibility metadata, the review queues and validation/deployment steps. Existing cloud build/start commands apply the cloud migration. Run one manual Sync Now with the updated source feed before relying on imported recommendations.

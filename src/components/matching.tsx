@@ -3,7 +3,12 @@ import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Data, label } from "@/lib/types";
 import { match, MatchPerson } from "@/lib/domain";
-import { needsReview, nextOccurrence } from "@/lib/programme-source";
+import {
+  needsReview,
+  nextOccurrence,
+  recommendationReady,
+  sourceCentres,
+} from "@/lib/programme-source";
 import { compareRecommendations } from "@/lib/matching";
 import Link from "next/link";
 import { Badge } from "./ui";
@@ -21,7 +26,10 @@ export default function Matching({
   const [memberId, setMember] = useState(params.get("member") ?? ""),
     [recipientId, setRecipient] = useState(""),
     [run, setRun] = useState(false),
-    [f, setF] = useState<Filters>({});
+    [f, setF] = useState<Filters>({
+      centre:
+        sourceCentres[params.get("centre") || ""] || params.get("centre") || "",
+    });
   const member = d.people.find((p) => p.id === memberId),
     recipient = d.people.find((p) => p.id === recipientId);
   const members = d.people.filter(
@@ -35,7 +43,12 @@ export default function Matching({
     ? d.programmes
         .filter(
           (p) =>
-            p.status === "Active" &&
+            recommendationReady(p) &&
+            (!p.external ||
+              !p.review ||
+              p.review.audience === "Both" ||
+              p.review.audience ===
+                (recipient ? "Care Recipients" : "Caregivers")) &&
             (!f.centre || p.centre === f.centre) &&
             (!f.language || names(p).languages.includes(f.language)) &&
             (!f.category || p.category === f.category) &&
@@ -55,6 +68,11 @@ export default function Matching({
             recipient ? names(recipient) : undefined,
             {
               ...names(p),
+              conditions:
+                p.review?.conditionAssessment === "Not Applicable"
+                  ? []
+                  : names(p).conditions,
+              conditionAssessment: p.review?.conditionAssessment,
               imported: Boolean(p.external),
               reviewRequired: needsReview(p),
             },
@@ -118,6 +136,21 @@ export default function Matching({
           </button>
         </div>
       </section>
+      <p className="notice">
+        Imported recommendations require confirmed future sessions, verified
+        source scheduling and completed suitability review. Registration
+        availability is shown separately. No travel times are assumed.
+      </p>
+      {d.programmes.some((p) => p.external && !recommendationReady(p)) && (
+        <p className="muted">
+          {
+            d.programmes.filter((p) => p.external && !recommendationReady(p))
+              .length
+          }{" "}
+          imported programmes are excluded pending suitability or source
+          scheduling checks. Review them in the Programme Catalogue.
+        </p>
+      )}
       <FilterBar
         search={f.q ?? ""}
         values={f}

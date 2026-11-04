@@ -9,6 +9,7 @@ export const personInclude = {
   assessments: true,
 } as const;
 export const programmeInclude = {
+  review: true,
   external: { include: { occurrences: true } },
   languages: { include: { language: true } },
   interests: { include: { interest: true } },

@@ -41,31 +41,79 @@ export function syncConfig(env = process.env) {
 }
 const nullable = z.string().max(2000).nullable();
 const timestamp = z.iso.datetime({ offset: true }).nullable();
+const eligibility = z.object({
+  eligibilityStatus: z.enum([
+    "confirmed_upcoming",
+    "tentative",
+    "cancelled",
+    "past",
+    "hidden",
+    "incomplete",
+    "scheduling_review",
+  ]),
+  recommendationEligible: z.boolean(),
+  identifiableProgramme: z.boolean(),
+  inUpcomingCatalogue: z.boolean(),
+  confirmed: z.boolean(),
+  schedulingVerification: z.object({
+    status: z.enum(["verified", "required", "not_checked"]),
+    reasonCodes: z.array(z.string().max(200)).max(100),
+  }),
+  reasonCodes: z.array(z.string().max(200)).max(100),
+  explanations: z.array(z.string().max(2000)).max(100).optional(),
+});
+const sourceClock = nullable.transform((v) =>
+  v && /^\d:[0-5]\d$/.test(v) ? `0${v}` : v,
+);
 const occurrence = z
   .object({
     occurrenceKey: z.string().min(1).max(200),
     sourceRecordIds: z.array(z.string().max(200)).max(100),
-    sessionDate: z.iso.date().nullable(),
+    sessionDate: nullable,
     day: nullable,
-    startTime: z
-      .string()
-      .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
-      .nullable(),
-    endTime: z
-      .string()
-      .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
-      .nullable(),
+    startTime: sourceClock,
+    endTime: sourceClock,
     venue: nullable,
     status: nullable,
     cancelled: z.boolean(),
     sourceUpdatedAt: timestamp,
     recurrence: nullable,
+    eligibility: eligibility.optional(),
+    sourceVisibility: z
+      .object({ timetableVisible: z.boolean(), calendarVisible: z.boolean() })
+      .optional(),
+    sourceActivityName: z.string().max(200).optional(),
+    independentSession: z.boolean().optional(),
   })
-  .refine((o) => !o.startTime || !o.endTime || o.endTime > o.startTime);
+  .refine((o) => {
+    if (
+      o.eligibility &&
+      o.eligibility.eligibilityStatus !== "confirmed_upcoming"
+    )
+      return true;
+    if (
+      o.eligibility &&
+      (!o.sessionDate || !o.startTime || !o.endTime || !o.venue)
+    )
+      return false;
+    return (
+      (!o.sessionDate || z.iso.date().safeParse(o.sessionDate).success) &&
+      (!o.startTime || /^([01]\d|2[0-3]):[0-5]\d$/.test(o.startTime)) &&
+      (!o.endTime || /^([01]\d|2[0-3]):[0-5]\d$/.test(o.endTime)) &&
+      (!o.startTime || !o.endTime || o.endTime > o.startTime)
+    );
+  });
+const diagnosticsSchema = z.object({
+  excludedByReason: z.record(z.string().max(100), z.number().int().min(0)),
+  schedulingReviewCount: z.number().int().min(0),
+  eligibleUpcomingOccurrences: z.number().int().min(0),
+  eligibleProgrammes: z.number().int().min(0),
+});
 const item = z.object({
   sourceProgrammeKey: z.string().min(1).max(200),
-  name: z.string().trim().min(1).max(200),
-  centreId: z.string().min(1).max(100),
+  name: z.string().trim().max(200),
+  centreId: z.string().min(1).max(100).nullable(),
+  rulesVersion: z.number().default(0),
   category: nullable,
   sourceStatus: nullable,
   sourceUpdatedAt: timestamp,
@@ -74,9 +122,13 @@ const item = z.object({
   fragmentCount: z.number().int().min(1).max(1000),
   occurrences: z.array(occurrence).max(100),
   scheduleTemplates: z.array(occurrence).max(100),
+  excludedOccurrences: z.array(occurrence).max(100).default([]),
 });
 const pageSchema = z.object({
   version: z.literal(1),
+  eligibilityRulesVersion: z.literal(2).optional(),
+  diagnostics: diagnosticsSchema.optional(),
+  excludedItems: z.array(item).max(100).default([]),
   source: z.literal("program-spacebooking"),
   generatedAt: z.iso.datetime({ offset: true }),
   items: z.array(item).max(100),
@@ -95,6 +147,8 @@ export async function fetchCatalogue(
   let cursor: string | null = null,
     size = 0;
   const signal = AbortSignal.timeout(90000);
+  let diagnostics: z.infer<typeof diagnosticsSchema> | undefined;
+  let rulesVersion: number | undefined;
   for (let page = 0; page < 50; page++) {
     const url = new URL(config.url);
     url.searchParams.set("limit", "100");
@@ -145,7 +199,32 @@ export async function fetchCatalogue(
         "Programme feed failed validation or timed out. No catalogue changes were saved.",
       );
     }
-    for (const value of data.items) {
+    if (
+      rulesVersion !== undefined &&
+      rulesVersion !== (data.eligibilityRulesVersion ?? 0)
+    )
+      throw new SyncError(
+        502,
+        "Feed eligibility version changed during pagination.",
+      );
+    rulesVersion = data.eligibilityRulesVersion ?? 0;
+    if (
+      diagnostics &&
+      JSON.stringify(diagnostics) !== JSON.stringify(data.diagnostics)
+    )
+      throw new SyncError(502, "Feed diagnostics changed during pagination.");
+    diagnostics = data.diagnostics;
+    for (const value of [...data.items, ...data.excludedItems]) {
+      value.rulesVersion = rulesVersion;
+      if (
+        rulesVersion === 2 &&
+        [
+          ...value.occurrences,
+          ...value.scheduleTemplates,
+          ...value.excludedOccurrences,
+        ].some((o) => !o.eligibility || !o.sourceVisibility)
+      )
+        throw new SyncError(502, "Missing source eligibility classification.");
       let group = fragments.get(value.sourceProgrammeKey);
       if (!group) {
         group = new Map();
@@ -161,7 +240,7 @@ export async function fetchCatalogue(
     }
     if (
       data.page.hasMore !== Boolean(data.page.nextCursor) ||
-      (data.page.hasMore && !data.items.length)
+      (data.page.hasMore && !data.items.length && !data.excludedItems.length)
     )
       throw new SyncError(502, "Incomplete programme pagination.");
     if (!data.page.hasMore) {
@@ -174,6 +253,7 @@ export async function fetchCatalogue(
           ...first,
           occurrences: [] as Item["occurrences"],
           scheduleTemplates: [] as Item["scheduleTemplates"],
+          excludedOccurrences: [] as Item["excludedOccurrences"],
         };
         const seen = new Map<string, string>();
         for (let i = 0; i < first.fragmentCount; i++) {
@@ -185,12 +265,20 @@ export async function fetchCatalogue(
               fragmentIndex: 0,
               occurrences: [],
               scheduleTemplates: [],
+              excludedOccurrences: [],
             });
           if (metadata(f) !== metadata(first))
             throw new SyncError(502, "Conflicting programme fragments.");
-          for (const kind of ["occurrences", "scheduleTemplates"] as const)
+          for (const kind of [
+            "occurrences",
+            "scheduleTemplates",
+            "excludedOccurrences",
+          ] as const)
             for (const o of f[kind]) {
-              if ((kind === "occurrences") !== Boolean(o.sessionDate))
+              if (
+                kind !== "excludedOccurrences" &&
+                (kind === "occurrences") !== Boolean(o.sessionDate)
+              )
                 throw new SyncError(502, "Invalid occurrence date.");
               const serialized = JSON.stringify(o),
                 prev = seen.get(o.occurrenceKey);
@@ -204,7 +292,7 @@ export async function fetchCatalogue(
         }
         result.push(merged);
       }
-      return result;
+      return Object.assign(result, { diagnostics });
     }
     cursor = data.page.nextCursor;
     if (!cursor || cursors.has(cursor))
@@ -297,7 +385,7 @@ export async function syncProgrammes(
         const totals = { created: 0, updated: 0, unchanged: 0, skipped: 0 };
         const seen: string[] = [];
         for (const value of items) {
-          const centre = sourceCentres[value.centreId];
+          const centre = sourceCentres[value.centreId ?? ""];
           if (!centre) {
             totals.skipped++;
             continue;
@@ -317,6 +405,18 @@ export async function syncProgrammes(
               403,
               "A programme centre change requires an administrator review.",
             );
+          if (
+            !old &&
+            (!value.name ||
+              [
+                ...value.occurrences,
+                ...value.scheduleTemplates,
+                ...value.excludedOccurrences,
+              ].every((o) => o.eligibility?.identifiableProgramme === false))
+          ) {
+            totals.skipped++;
+            continue;
+          }
           if (old?.ownership === "Local") {
             totals.skipped++;
             seen.push(old.id);
@@ -325,11 +425,54 @@ export async function syncProgrammes(
           const schedule = [
             ...value.occurrences,
             ...value.scheduleTemplates,
+            ...value.excludedOccurrences,
           ].sort((a, b) => a.occurrenceKey.localeCompare(b.occurrenceKey));
+          const reviewFingerprint = createHash("sha256")
+            .update(
+              JSON.stringify({
+                name: value.name || old?.programme.name || "",
+                centre,
+                category: value.category,
+                recurrence: value.recurrence,
+                schedule: schedule
+                  .map((o) => ({
+                    date: o.sessionDate,
+                    day: o.day,
+                    start: o.startTime,
+                    end: o.endTime,
+                    venue: o.venue,
+                    status: o.status,
+                    cancelled: o.cancelled,
+                    eligibility: o.eligibility?.eligibilityStatus,
+                    scheduling: o.eligibility?.schedulingVerification,
+                    visibility: o.sourceVisibility,
+                    independent: o.independentSession,
+                  }))
+                  .sort((a, b) =>
+                    JSON.stringify(a).localeCompare(JSON.stringify(b)),
+                  ),
+              }),
+            )
+            .digest("hex");
+          const materialChange = Boolean(
+            old && (old.missing || old.reviewFingerprint !== reviewFingerprint),
+          );
+          const groupingStatus =
+            value.rulesVersion === 2 &&
+            schedule.length > 0 &&
+            !schedule.some((o) =>
+              o.eligibility?.reasonCodes.some((c) =>
+                ["series_membership_unverified", "ambiguous_identity"].includes(
+                  c,
+                ),
+              ),
+            )
+              ? "Verified"
+              : "Unverified";
           const fingerprint = createHash("sha256")
             .update(
               JSON.stringify({
-                name: value.name,
+                name: value.name || old?.programme.name || "",
                 centre,
                 category: value.category,
                 recurrence: value.recurrence,
@@ -345,7 +488,7 @@ export async function syncProgrammes(
             old?.programme ??
             (await tx.programme.create({
               data: {
-                name: value.name,
+                name: value.name || old?.programme.name || "",
                 centre,
                 category: value.category ?? "",
                 registrationStatus: "Unverified",
@@ -355,7 +498,7 @@ export async function syncProgrammes(
             await tx.programme.update({
               where: { id: p.id },
               data: {
-                name: value.name,
+                name: value.name || old?.programme.name || "",
                 centre,
                 category: value.category ?? "",
                 frequency: value.recurrence ?? "",
@@ -365,6 +508,21 @@ export async function syncProgrammes(
                 venue: "",
               },
             });
+          if (materialChange) {
+            await tx.programmeReview.updateMany({
+              where: { programmeId: p.id, status: "Reviewed" },
+              data: {
+                status: "Needs Recheck",
+                issues: [
+                  "Source schedule, venue, category, visibility or eligibility changed; review required",
+                ],
+              },
+            });
+            await tx.programme.update({
+              where: { id: p.id },
+              data: { suitabilityReviewed: false },
+            });
+          }
           const ext = await tx.externalProgramme.upsert({
             where: {
               source_sourceKey: { source, sourceKey: value.sourceProgrammeKey },
@@ -373,13 +531,19 @@ export async function syncProgrammes(
               programmeId: p.id,
               source,
               sourceKey: value.sourceProgrammeKey,
-              centreId: value.centreId,
+              centreId: value.centreId!,
+              reviewFingerprint,
+              groupingStatus,
+              eligibilityRulesVersion: value.rulesVersion,
               lastSeenAt: now,
               lastSyncAt: now,
               fingerprint,
             },
             update: {
-              centreId: value.centreId,
+              centreId: value.centreId!,
+              reviewFingerprint,
+              groupingStatus,
+              eligibilityRulesVersion: value.rulesVersion,
               lastSeenAt: now,
               lastSyncAt: now,
               fingerprint,
@@ -395,8 +559,31 @@ export async function syncProgrammes(
                 : null,
             },
           });
+          await tx.programmeReview.upsert({
+            where: { programmeId: p.id },
+            create: {
+              programmeId: p.id,
+              status: "Pending Review",
+              issues: [],
+              sourceFingerprint: reviewFingerprint,
+            },
+            update: {},
+          });
           for (const o of schedule) {
             const data = {
+              eligibilityStatus:
+                o.eligibility?.eligibilityStatus ?? "unverified",
+              schedulingStatus:
+                o.eligibility?.schedulingVerification.status ?? "not_checked",
+              recommendationEligible:
+                o.eligibility?.recommendationEligible ?? false,
+              reasonCodes: o.eligibility?.reasonCodes ?? [
+                "eligibility_not_provided",
+              ],
+              timetableVisible: o.sourceVisibility?.timetableVisible ?? false,
+              calendarVisible: o.sourceVisibility?.calendarVisible ?? false,
+              sourceActivityName: o.sourceActivityName ?? value.name,
+              independentSession: o.independentSession ?? false,
               sourceRecordIds: o.sourceRecordIds,
               date: o.sessionDate,
               day: o.day ?? "",
@@ -449,8 +636,7 @@ export async function syncProgrammes(
         for (const ext of missing)
           if (
             centreAllowed(u, ext.programme.centre) &&
-            Object.hasOwn(sourceCentres, ext.centreId) &&
-            !items.some((i) => i.sourceProgrammeKey === ext.sourceKey)
+            Object.hasOwn(sourceCentres, ext.centreId)
           ) {
             await tx.externalProgramme.update({
               where: { id: ext.id },
@@ -460,16 +646,30 @@ export async function syncProgrammes(
               where: { externalId: ext.id },
               data: { missing: true },
             });
+            await tx.programmeReview.updateMany({
+              where: { programmeId: ext.programmeId, status: "Reviewed" },
+              data: {
+                status: "Needs Recheck",
+                issues: [
+                  "Programme missing from the latest complete source feed",
+                ],
+              },
+            });
+            await tx.programme.update({
+              where: { id: ext.programmeId },
+              data: { suitabilityReviewed: false },
+            });
             totals.updated++;
           }
         await tx.programmeSyncRun.update({
           where: { id: run.id },
           data: {
             ...totals,
+            ...(items.diagnostics ? { diagnostics: items.diagnostics } : {}),
             status: "Success",
             finishedAt: new Date(),
             errorSummary: items.some(
-              (i) => !Object.hasOwn(sourceCentres, i.centreId),
+              (i) => !Object.hasOwn(sourceCentres, i.centreId ?? ""),
             )
               ? "Unknown source centres skipped; administrator mapping review required."
               : "",
@@ -488,7 +688,11 @@ export async function syncProgrammes(
       },
       { timeout: 60000, maxWait: 10000 },
     );
-    return { runId: run.id, ...counts };
+    return {
+      runId: run.id,
+      ...counts,
+      diagnostics: unrestricted(u) ? items.diagnostics : undefined,
+    };
   } catch (e) {
     const safe =
       e instanceof SyncError

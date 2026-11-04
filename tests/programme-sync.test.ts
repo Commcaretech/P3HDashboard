@@ -37,6 +37,18 @@ const occ = (key = "o1") => ({
   cancelled: false,
   sourceUpdatedAt: null,
   recurrence: null,
+  sourceActivityName: "Programme",
+  independentSession: false,
+  sourceVisibility: { timetableVisible: true, calendarVisible: true },
+  eligibility: {
+    eligibilityStatus: "confirmed_upcoming",
+    recommendationEligible: true,
+    identifiableProgramme: true,
+    inUpcomingCatalogue: true,
+    confirmed: true,
+    schedulingVerification: { status: "verified", reasonCodes: [] },
+    reasonCodes: [],
+  },
 });
 const item = () => ({
   sourceProgrammeKey: "stable-1",
@@ -53,6 +65,7 @@ const item = () => ({
 });
 const envelope = (items: unknown[]) => ({
   version: 1,
+  eligibilityRulesVersion: 2,
   source: "program-spacebooking",
   generatedAt: new Date().toISOString(),
   items,

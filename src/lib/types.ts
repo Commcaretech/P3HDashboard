@@ -52,14 +52,44 @@ export type Relationship = {
   recipientId: string;
   relationship: string;
 };
+export type ProgrammeReview = {
+  status: string;
+  audience: string;
+  languageAssessment: string;
+  interestAssessment: string;
+  mobilityAssessment: string;
+  conditionAssessment: string;
+  accessibility: string;
+  intensity: string;
+  staffNotes: string;
+  issues: unknown;
+  sourceFingerprint: string;
+  reviewedBy: string | null;
+  reviewedByName: string;
+  reviewedAt: string | Date | null;
+  updatedAt: string | Date;
+};
 export type Programme = {
+  review?: ProgrammeReview | null;
   suitabilityReviewed?: boolean;
   external?: {
+    reviewFingerprint?: string;
+    eligibilityRulesVersion?: number;
+    groupingStatus?: string;
+    sourceKey?: string;
     source: string;
     centreId: string;
     sourceStatus: string;
     missing: boolean;
     occurrences: {
+      eligibilityStatus?: string;
+      schedulingStatus?: string;
+      recommendationEligible?: boolean;
+      reasonCodes?: unknown;
+      sourceActivityName?: string;
+      independentSession?: boolean;
+      timetableVisible?: boolean;
+      calendarVisible?: boolean;
       id: string;
       date: string | null;
       day: string;

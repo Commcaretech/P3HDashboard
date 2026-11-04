@@ -1050,3 +1050,82 @@ dialog { max-height:calc(100dvh - 48px); overflow:auto; width:min(780px,calc(100
 .sync-spinner { display:inline-block; margin-right:.5rem; animation:sync-spin 1s linear infinite; }
 @keyframes sync-spin { to { transform:rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .sync-spinner { animation:none; } }
+
+/* Programme catalogue and suitability review */
+.programme-catalogue { display:grid; gap:1rem; min-width:0; }
+.programme-catalogue .panel { margin:0; }
+.catalogue-integration { border-top:3px solid var(--primary,#146356); }
+.catalogue-integration .section-head { align-items:center; gap:1rem; flex-wrap:wrap; }
+.catalogue-integration h2 { margin:.2rem 0; }
+.eyebrow { font-size:.72rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:#52666b; margin:0; }
+.sync-meta { display:flex; gap:.5rem 1.5rem; flex-wrap:wrap; color:#58666e; font-size:.82rem; padding:.5rem 0 .8rem; }
+.catalogue-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.7rem; }
+.catalogue-metric { display:grid; grid-template-columns:22px 1fr; align-content:start; align-items:center; gap:.3rem .5rem; border:1px solid #dbe5e4; background:#f7faf9; border-radius:10px; padding:.9rem; color:#263f43; text-align:left; box-shadow:none; }
+.catalogue-metric strong { font-size:1.65rem; line-height:1.15; }
+.catalogue-metric span,.catalogue-metric small { grid-column:1/-1; line-height:1.35; }
+.catalogue-metric span { font-size:.83rem; font-weight:600; }
+.catalogue-metric small { color:#52666b; font-size:.73rem; }
+button.metric-action { background:#fff; color:#204c45; }
+button.metric-action:hover,button.metric-action.selected { border-color:#277466; background:#edf6f3; }
+.sync-history { font-size:.8rem; color:#52666b; }
+.sync-history summary { padding:.3rem 0; cursor:pointer; }
+.centre-tabs { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:.5rem; }
+.centre-tabs button { display:grid; align-content:start; gap:.4rem; text-align:left; padding:.85rem; border:1px solid #d8e1e4; background:#fff; color:#334c54; border-radius:9px; min-width:0; }
+.centre-tabs button strong { font-size:.85rem; line-height:1.3; }
+.centre-tabs button span { font-size:.75rem; }
+.centre-tabs button small { font-size:.7rem; font-weight:400; line-height:1.45; }
+.centre-tabs button.selected { background:#eaf4f0; border:2px solid #266b5e; padding:calc(.85rem - 1px); color:#174b40; }
+.centre-tabs button:disabled { opacity:.55; cursor:not-allowed; }
+.catalogue-toolbar { display:flex; justify-content:space-between; gap:1rem; align-items:center; flex-wrap:wrap; }
+.catalogue-toolbar h2 { margin:0 0 .2rem; }
+.catalogue-toolbar p { margin:0; color:#617178; font-size:.85rem; }
+.review-views { display:flex; gap:.4rem; flex-wrap:wrap; }
+.review-views button { border-radius:6px; padding:.55rem .85rem; font-size:.85rem; }
+.review-views .selected { background:#214f46; color:#fff; }
+.catalogue-search { display:flex; align-items:end; gap:.6rem; }
+.catalogue-search label { flex:1; min-width:160px; }
+.catalogue-filter-fields { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.8rem; margin-top:1rem; }
+.catalogue-filter-fields[hidden] { display:none; }
+.catalogue-active-filters { display:flex; flex-wrap:wrap; gap:.35rem; margin-top:.5rem; }
+.catalogue-result-count { margin:0; color:#52656d; font-size:.85rem; }
+.programme-catalogue td { vertical-align:top; }
+.programme-catalogue td p { margin:.3rem 0; }
+.programme-catalogue td small { display:block; margin-top:.3rem; color:#627078; }
+.programme-catalogue td:first-child { min-width:190px; max-width:320px; }
+.programme-catalogue summary { cursor:pointer; font-weight:600; }
+.programme-sessions { margin:.75rem 0; }
+.programme-sessions ul { padding:0; list-style:none; }
+.programme-sessions li { border-top:1px solid #dce6e3; padding:.6rem 0; display:flex; align-items:start; flex-wrap:wrap; gap:.4rem; font-size:.85rem; }
+.programme-sessions li small { flex-basis:100%; color:#66767b; }
+.programme-review { display:grid; gap:1rem; }
+.programme-review fieldset { border:1px solid #d9e4e1; padding:1rem; border-radius:9px; min-width:0; }
+.programme-review legend { padding:0 .4rem; font-weight:700; font-size:.92rem; color:#204f45; }
+.programme-review fieldset p { color:#5a6b70; font-size:.83rem; margin:0 0 .8rem; }
+.review-source { background:#f2f7f5; border:1px solid #d9e5df; border-radius:9px; padding:1rem; }
+.review-source h3 { margin:0; }
+.review-source p { font-size:.85rem; }
+.review-gaps { background:#faf7ee; padding:.8rem 1rem; border-radius:8px; }
+.review-gaps h3 { margin:0; font-size:.9rem; }
+.review-gaps ul { margin:.4rem 0; padding-left:1.2rem; font-size:.82rem; }
+.review-gaps p { font-size:.8rem; margin:.4rem 0 0; }
+.review-actions { position:sticky; bottom:-1px; background:#fff; border-top:1px solid #dce4e1; padding:.8rem 0; margin:0; }
+@media(max-width:1100px) { .centre-tabs { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media(max-width:800px) { .centre-tabs { grid-template-columns:repeat(2,minmax(0,1fr)); }.catalogue-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }.catalogue-filter-fields { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:500px) { .catalogue-search { flex-wrap:wrap; }.catalogue-search label { flex-basis:100%; }.catalogue-filter-fields { grid-template-columns:1fr; }.review-actions button { flex:1 1 40%; font-size:.8rem; }.centre-tabs button small { font-size:.68rem; } }
+
+.programme-catalogue .table-scroll { max-height:none; overflow-x:auto; }
+@media(max-width:1050px) {
+ .programme-catalogue .table-scroll { border:0; border-radius:0; background:transparent; overflow:visible; }
+ .programme-catalogue table,.programme-catalogue tbody { display:block; }
+ .programme-catalogue thead { display:none; }
+ .programme-catalogue tbody tr { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.7rem 1rem; border:1px solid #d8e3df; border-radius:9px; padding:1rem; background:#fff; margin-bottom:.8rem; }
+ .programme-catalogue td { display:block; min-width:0!important; max-width:none!important; padding:0; border:0; overflow-wrap:anywhere; }
+ .programme-catalogue td:first-child,.programme-catalogue td:last-child { grid-column:1/-1; }
+ .programme-catalogue td::before { display:block; font-size:.68rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:#63777c; margin-bottom:.25rem; }
+ .programme-catalogue td:nth-child(2)::before { content:"Centre"; }
+ .programme-catalogue td:nth-child(3)::before { content:"Next session"; }
+ .programme-catalogue td:nth-child(4)::before { content:"Category"; }
+ .programme-catalogue td:nth-child(5)::before { content:"Review status"; }
+ .programme-catalogue td:nth-child(6)::before { content:"Registration availability"; }
+ .programme-catalogue td:last-child { padding-top:.4rem; }
+}

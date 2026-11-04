@@ -258,19 +258,6 @@ export default function DashboardApp({
         ...programmeFields.filter(
           (f) => !p?.external || ![...sourceFields, "capacity"].includes(f.key),
         ),
-        ...(p?.external
-          ? [
-              {
-                key: "suitabilityReviewed",
-                label: "Suitability review",
-                type: "select" as const,
-                options: [
-                  { value: "Pending", label: "Pending review" },
-                  { value: "Reviewed", label: "Reviewed" },
-                ],
-              },
-            ]
-          : []),
       ].map((f) => ({
         ...f,
         section: ["name", "description", "category", "centre"].includes(f.key)

@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { categories, personSchema, programmeSchema } from "./domain";
-import { personInclude } from "./db";
+import { personInclude, programmeInclude } from "./db";
 type Tx = Prisma.TransactionClient;
 export async function audit(
   tx: Tx,
@@ -264,7 +264,10 @@ export async function saveProgramme(
     ? await tx.externalProgramme.findUnique({ where: { programmeId: id } })
     : null;
   const existingProgramme = id
-    ? await tx.programme.findUnique({ where: { id } })
+    ? await tx.programme.findUnique({
+        where: { id },
+        include: programmeInclude,
+      })
     : null;
   const raw = input as Record<string, unknown>;
   const v = programmeSchema.parse(
@@ -287,25 +290,41 @@ export async function saveProgramme(
               existingProgramme[k as keyof typeof existingProgramme],
             ]),
           ),
-          suitabilityReviewed:
-            raw.suitabilityReviewed === "Reviewed" ||
-            raw.suitabilityReviewed === true,
+          suitabilityReviewed: existingProgramme.suitabilityReviewed,
         }
       : raw,
   );
-  if (
+  const changedSuitability = Boolean(
     imported &&
-    v.registrationStatus === "Open" &&
-    (!v.suitabilityReviewed ||
-      !v.mobility ||
-      !v.languages ||
-      !v.interests ||
-      !v.conditions ||
-      imported.missing)
-  )
-    throw new Error(
-      "Review and complete imported suitability before opening registration.",
-    );
+    existingProgramme?.review?.status === "Reviewed" &&
+    (["mobility", "description", "notes"].some(
+      (k) =>
+        v[k as "mobility" | "description" | "notes"] !==
+        existingProgramme[k as "mobility" | "description" | "notes"],
+    ) ||
+      JSON.stringify(categories(v.languages).sort()) !==
+        JSON.stringify(
+          existingProgramme.languages.map((x) => x.language.name).sort(),
+        ) ||
+      JSON.stringify(categories(v.interests).sort()) !==
+        JSON.stringify(
+          existingProgramme.interests.map((x) => x.interest.name).sort(),
+        ) ||
+      JSON.stringify(categories(v.conditions).sort()) !==
+        JSON.stringify(
+          existingProgramme.conditions.map((x) => x.condition.name).sort(),
+        )),
+  );
+  if (changedSuitability) {
+    v.suitabilityReviewed = false;
+    await tx.programmeReview.update({
+      where: { programmeId: id },
+      data: {
+        status: "Needs Recheck",
+        issues: ["Local suitability changed; complete review again"],
+      },
+    });
+  }
   const { languages, interests, conditions, ...data } = v;
   const before = id ? await tx.programme.findUnique({ where: { id } }) : null;
   if (id && !before) throw new Error("Record not found");

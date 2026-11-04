@@ -146,6 +146,7 @@ model Assessment {
  @@index([personId])
 }
 model Programme {
+ review ProgrammeReview?
  external ExternalProgramme?
  suitabilityReviewed Boolean @default(false)
  id String @id @default(cuid())
@@ -327,6 +328,9 @@ model NotificationDelivery {
 }
 
 model ExternalProgramme {
+ reviewFingerprint String @default("")
+ eligibilityRulesVersion Int @default(0)
+ groupingStatus String @default("Unverified")
  id String @id @default(cuid())
  programmeId String @unique
  programme Programme @relation(fields:[programmeId],references:[id])
@@ -344,6 +348,14 @@ model ExternalProgramme {
  @@unique([source,sourceKey])
 }
 model ExternalOccurrence {
+ eligibilityStatus String @default("unverified")
+ schedulingStatus String @default("not_checked")
+ recommendationEligible Boolean @default(false)
+ reasonCodes Json @default("[]")
+ sourceActivityName String @default("")
+ independentSession Boolean @default(false)
+ timetableVisible Boolean @default(false)
+ calendarVisible Boolean @default(false)
  id String @id @default(cuid())
  externalId String
  external ExternalProgramme @relation(fields:[externalId],references:[id])
@@ -362,6 +374,7 @@ model ExternalOccurrence {
  @@index([date,status])
 }
 model ProgrammeSyncRun {
+ diagnostics Json?
  id String @id @default(cuid())
  userId String?
  scope Json
@@ -380,4 +393,26 @@ model ProgrammeSyncLock {
  id String @id
  token String
  expiresAt DateTime
+}
+
+model ProgrammeReview {
+ id String @id @default(cuid())
+ programmeId String @unique
+ programme Programme @relation(fields:[programmeId],references:[id])
+ status String @default("Pending Review")
+ audience String @default("")
+ languageAssessment String @default("Not Assessed")
+ interestAssessment String @default("Not Assessed")
+ mobilityAssessment String @default("Not Assessed")
+ conditionAssessment String @default("Not Assessed")
+ accessibility String @default("")
+ intensity String @default("Not Assessed")
+ staffNotes String @default("")
+ issues Json
+ sourceFingerprint String @default("")
+ reviewedBy String?
+ reviewedByName String @default("")
+ reviewedAt DateTime?
+ updatedAt DateTime @updatedAt
+ @@index([status])
 }

@@ -7,6 +7,7 @@ export type MatchPerson = {
 export type MatchProgramme = MatchPerson & {
   imported?: boolean;
   reviewRequired?: boolean;
+  conditionAssessment?: string;
 };
 export const weights = {
   condition: 35,
@@ -20,6 +21,18 @@ export const compareRecommendations = (
   b: { eligible: boolean; score: number },
 ) => Number(b.eligible) - Number(a.eligible) || b.score - a.score;
 const normalize = (s: string) => s.trim().toLowerCase();
+export function mobilityCompatible(person: string, programme: string) {
+  const mobility = normalize(person),
+    levels = programme.split(/[,;\n]/).map(normalize);
+  return Boolean(
+    mobility &&
+    programme &&
+    (levels.includes("all") ||
+      levels.includes("all mobility levels") ||
+      levels.includes(mobility) ||
+      (mobility === "wheelchair" && levels.includes("wheelchair friendly"))),
+  );
+}
 export function match(
   member: MatchPerson,
   recipient: MatchPerson | undefined,
@@ -42,14 +55,20 @@ export function match(
       reasons.push(
         `${label}: ${a.length ? "no match" : "information missing"} (+0%)`,
       );
-    if (!a.length) missing.push(label);
+    if (!a.length || !b.length)
+      missing.push(!b.length ? `Programme ${label.toLowerCase()}` : label);
   };
-  award(
-    recipient?.conditions ?? [],
-    p.conditions,
-    weights.condition,
-    "Care recipient conditions",
-  );
+  if (p.imported && p.conditionAssessment !== "Assessed")
+    reasons.push(
+      "Care considerations: no condition-specific suitability assessment (+0%); staff review remains necessary for individual needs",
+    );
+  else
+    award(
+      recipient?.conditions ?? [],
+      p.conditions,
+      weights.condition,
+      "Care recipient conditions",
+    );
   award(language, p.languages, weights.language, "Language");
   award(
     member.interests,
@@ -66,7 +85,9 @@ export function match(
   const levels = p.mobility.split(/[,;\n]/).map(normalize);
   const unrestricted =
     levels.includes("all") || levels.includes("all mobility levels");
-  const mobility = normalize(recipient?.mobility ?? "");
+  const mobility = normalize(
+    recipient?.mobility ?? (p.imported ? member.mobility : ""),
+  );
   const mobile = Boolean(
     mobility &&
     p.mobility &&
@@ -80,10 +101,11 @@ export function match(
     !(mobility && p.mobility && !mobile) &&
     !(
       p.imported &&
-      (p.reviewRequired ||
+      (!mobility ||
+        p.reviewRequired ||
         !p.mobility ||
         !p.languages.length ||
-        !p.conditions.length ||
+        (p.conditionAssessment !== "Not Applicable" && !p.conditions.length) ||
         !p.interests.length)
     );
   reasons.push(
@@ -92,10 +114,12 @@ export function match(
   if (!eligible)
     reasons.unshift(
       p.imported &&
-        (p.reviewRequired ||
+        (!mobility ||
+          p.reviewRequired ||
           !p.mobility ||
           !p.languages.length ||
-          !p.conditions.length ||
+          (p.conditionAssessment !== "Not Applicable" &&
+            !p.conditions.length) ||
           !p.interests.length)
         ? "Staff suitability review required; compatibility does not confirm registration availability"
         : "Not Recommended: Mobility requirement not met",

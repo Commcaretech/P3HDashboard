@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
               },
               orderBy: { updatedAt: "desc" },
             }),
-        tableOnly
+        tableOnly || req.nextUrl.searchParams.get("section")==="programmes"
           ? Promise.resolve([])
           : db.programme.findMany({
               where: programmeScope(u),

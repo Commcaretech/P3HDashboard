@@ -278,9 +278,9 @@ export function Badge({ children }: { children: React.ReactNode }) {
   const text = String(children).toLowerCase();
   const tone = /overdue|expired|rejected|high|not recommended/.test(text)
     ? "danger"
-    : /pending|waitlist|review|unverified|low confidence|due soon/.test(text)
+    : /pending|waitlist|review(?!ed)|needs recheck|unverified|tentative|incomplete|tbc|missing|low confidence|due soon/.test(text)
       ? "warning"
-      : /inactive|archived|dismissed|closed|unassigned/.test(text)
+      : /inactive|archived|dismissed|closed|unassigned|cancelled|hidden|past/.test(text)
         ? "neutral"
         : /submitted|scheduled|receiv|recorded|registered/.test(text)
           ? "info"

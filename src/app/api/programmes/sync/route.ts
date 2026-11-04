@@ -9,7 +9,11 @@ import {
   SyncError,
   canSync,
 } from "@/lib/programme-sync";
-import { needsReview, nextOccurrence } from "@/lib/programme-source";
+import {
+  needsReview,
+  confirmedOccurrences,
+  schedulingConcern,
+} from "@/lib/programme-source";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const reply = (body: unknown, status = 200) =>
@@ -109,13 +113,10 @@ export async function GET() {
       running: Boolean(lock && lock.expiresAt > new Date()),
       imported: programmes.length,
       upcoming: programmes.reduce(
-        (n, p) =>
-          n +
-          p.external!.occurrences.filter((o) =>
-            nextOccurrence({ external: { ...p.external!, occurrences: [o] } }),
-          ).length,
+        (n, p) => n + confirmedOccurrences(p).length,
         0,
       ),
+      concerns: programmes.filter(schedulingConcern).length,
       review: programmes.filter(needsReview).length,
       lastSuccess:
         lastSuccess?.finishedAt ??
@@ -134,6 +135,7 @@ export async function GET() {
         skipped: r.skipped,
         errors: r.errors,
         errorSummary: r.errorSummary,
+        diagnostics: unrestricted(u) ? r.diagnostics : undefined,
       })),
     });
   } catch {

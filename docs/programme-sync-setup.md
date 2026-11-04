@@ -50,7 +50,7 @@ Live source credentials, cloud migration and hosted/device checks require operat
 
 ## Shared feed contract, version 1
 
-The source implementation is Program-SpaceBooking/supabase/functions/p3h-programmes/service.ts. GET the configured URL with limit=100 and optional opaque cursor. The server sends x-p3h-sync-token, no Origin, no request body, no P3H database IDs and no personal information. Redirects are rejected.
+The source implementation is Program-SpaceBooking/supabase/functions/p3h-programmes/service.ts. The updated consumer also supports eligibilityRulesVersion 2, excludedItems and excludedOccurrences; see [catalogue and review workflow](programme-catalogue-review.md) for classification rules, persistent reviews and migration 202611040002_programme_review. GET the configured URL with limit=100 and optional opaque cursor. The server sends x-p3h-sync-token, no Origin, no request body, no P3H database IDs and no personal information. Redirects are rejected.
 
 ```json
 {"version":1,"source":"program-spacebooking","generatedAt":"2026-11-04T00:00:00.000Z","items":[],"page":{"hasMore":false,"nextCursor":null}}
@@ -64,9 +64,9 @@ Bounds: 50 pages, 100 items/page, 100 occurrences/templates per fragment, 2 MB/p
 
 ## Operation and registration safety
 
-Imported registration defaults to Unverified; suitability is blank and local capacity unspecified. Source pax/capacity is ignored. Source name, category, centre and schedules are read-only; forged edit requests cannot change them. Staff maintain description, notes, languages, interests, conditions, mobility, local status and verified registration availability. Select Reviewed explicitly after completing suitability. Confirm registration availability independently before choosing Open.
+Imported registration defaults to Unverified; suitability is blank and local capacity unspecified. Source pax/capacity is ignored. Source name, category, centre and schedules are read-only; forged edit requests cannot change them. Staff maintain description, notes, languages, interests, conditions, mobility, local status and verified registration availability. Use Review Programme and Mark as Reviewed after completing the structured assessment. Care considerations may explicitly be Not Applicable; no condition-specific points are then awarded. Confirm registration availability independently before choosing Open.
 
-Registration requires reviewed suitability and a confirmed/active/scheduled future dated occurrence. Cancelled, inactive, mixed, TBC, missing and undated sessions do not establish upcoming availability. Dates/times use Asia/Singapore. Matching weights remain unchanged; imported missing suitability never establishes eligibility. Compatibility does not establish registration vacancies. Manual editing and registration behaviour remain available.
+Imported registration requires an explicit completed review, supported audience/mobility and a future occurrence passing the source eligibility and scheduling verification rules. Cancelled, inactive, mixed, TBC, missing and undated sessions do not establish upcoming availability. Dates/times use Asia/Singapore. Matching weights remain unchanged; imported missing suitability never establishes eligibility. Compatibility does not establish registration vacancies. Manual editing and registration behaviour remain available.
 
 Sync Now disables until completion and refreshes data on success. History reports exact programme counts, skipped records and sanitised errors. Full-feed absence reconciliation flags records as missing without deletion, including after a valid empty feed. Reappearing keys clear missing flags. Suitability, notes, registration, archive state and participation history survive sync. Local-owned mappings are retained and skipped; no automatic ownership conversion/linking UI is included.
 

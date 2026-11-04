@@ -3,7 +3,9 @@ import ExcelJS from "exceljs";
 import { readFile } from "node:fs/promises";
 import { today } from "../../src/lib/domain";
 import { addDays, calculateFollowUp } from "../../src/lib/follow-up";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { PrismaClient } from "@prisma/client";
+import { resolve } from "node:path";
 
 const password = randomBytes(24).toString("base64url");
 
@@ -1606,4 +1608,254 @@ test("manual programme sync uses protected server fetch, scoped permissions and 
   ).text();
   expect(status).not.toContain("fictional-e2e-sync-secret");
   expect(status).not.toContain("passwordHash");
+});
+
+test("centre catalogue tabs, interactive review queues and persisted suitability work on tablets", async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: "http://127.0.0.1:3100" };
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "fake.admin", password },
+  });
+  const fixture = new PrismaClient({
+    datasourceUrl: `file:${resolve("data/e2e.db").replace(/\\/g, "/")}`,
+  });
+  const centreNames: Record<string, string> = {
+    SEEN_BB: "SEEN Bukit Batok",
+    GLOW_BB: "GLOW Bukit Batok",
+    SEEN_NY: "SEEN Nanyang",
+    GLOW_NY: "GLOW Nanyang",
+  };
+
+  try {
+    for (const [i, centreId] of [
+      "SEEN_BB",
+      "GLOW_BB",
+      "SEEN_NY",
+      "GLOW_NY",
+      "GLOW_BB",
+    ].entries()) {
+      const p = await fixture.programme.create({
+        data: {
+          name: `Centre review physical${i === 4 ? " - distinct group" : ""}`,
+          centre: centreNames[centreId],
+          category: "Physical",
+          registrationStatus: "Unverified",
+          external: {
+            create: {
+              source: "program-spacebooking",
+              sourceKey: `e2e-review-${randomUUID()}`,
+              centreId,
+              sourceStatus: "scheduled",
+              lastSeenAt: new Date(),
+              lastSyncAt: new Date(),
+              fingerprint: "fixture",
+              reviewFingerprint: "fixture-v1",
+              eligibilityRulesVersion: 2,
+              groupingStatus: "Verified",
+              occurrences: {
+                create: [1, 2].map((n) => ({
+                  sourceKey: `session-${n}`,
+                  sourceRecordIds: [`classes:fixture-${i}-${n}`],
+                  date: `2099-12-0${n}`,
+                  day: "Tuesday",
+                  startTime: "10:00",
+                  endTime: "11:00",
+                  venue: "Off-site",
+                  status: "scheduled",
+                  eligibilityStatus: "confirmed_upcoming",
+                  schedulingStatus: "verified",
+                  recommendationEligible: true,
+                  timetableVisible: true,
+                  calendarVisible: true,
+                })),
+              },
+            },
+          },
+        },
+      });
+      void p;
+    }
+  } finally {
+    await fixture.$disconnect();
+  }
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.goto("/programmes");
+  await page
+    .getByRole("tab", { name: "GLOW Bukit Batok", exact: true })
+    .click();
+  await expect(
+    page.getByRole("tab", { name: "GLOW Bukit Batok", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  await expect(
+    page.getByRole("status").filter({ hasText: "2 matching programmes" }),
+  ).toBeVisible();
+  const scoped = await (
+    await context.request.get("/api/programmes/catalogue?centre=GLOW_BB")
+  ).json();
+  expect(scoped.counts.pending).toBe(2);
+  expect(scoped.counts.upcoming).toBe(4);
+  expect(
+    scoped.rows.every(
+      (p: { centre: string }) => p.centre === "GLOW Bukit Batok",
+    ),
+  ).toBe(true);
+  await page
+    .getByRole("button", { name: "Pending Reviews: 2", exact: true })
+    .click();
+  await expect(page).toHaveURL(/centre=GLOW_BB/);
+  await expect(page).toHaveURL(/review=Pending/);
+  await page.getByRole("button", { name: "Filters", exact: true }).click();
+  await page.getByLabel("Category", { exact: true }).selectOption("Physical");
+  await page
+    .getByLabel("Search records", { exact: true })
+    .fill("Centre review");
+  await expect(
+    page.getByRole("status").filter({ hasText: "2 matching programmes" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Review Programme", exact: true })
+    .first()
+    .click();
+  let dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "Mark as Reviewed", exact: true }),
+  ).toBeDisabled();
+  await dialog
+    .getByLabel("Intended audience", { exact: true })
+    .selectOption("Both");
+  await dialog
+    .getByLabel("Languages supported", { exact: true })
+    .fill("English");
+  await dialog.getByLabel("Relevant interests", { exact: true }).fill("Music");
+  await dialog
+    .getByLabel("Suitable mobility levels", { exact: true })
+    .fill("Assisted");
+  await dialog
+    .getByLabel("Physical accessibility and restrictions", { exact: true })
+    .fill("Step-free; assistance required");
+  await dialog
+    .getByLabel("Activity intensity", { exact: true })
+    .selectOption("Low");
+  await dialog
+    .getByLabel("Care considerations assessment", { exact: true })
+    .selectOption("Not Applicable");
+  await dialog
+    .getByLabel("Staff review notes", { exact: true })
+    .fill("Fictional reviewed suitability notes");
+  await dialog.getByRole("button", { name: "Save Draft", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole("button", { name: "In Review", exact: true }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "1 matching programmes" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Review Programme", exact: true })
+    .click();
+  dialog = page.getByRole("dialog");
+  await expect(
+    dialog.getByLabel("Staff review notes", { exact: true }),
+  ).toHaveValue("Fictional reviewed suitability notes");
+  await expect(
+    dialog.getByRole("button", { name: "Mark as Reviewed", exact: true }),
+  ).toBeEnabled();
+  await dialog.locator("summary").filter({ hasText: "View sessions" }).click();
+  await expect(dialog.getByText("2099-12-01", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("2099-12-02", { exact: true })).toBeVisible();
+  const bounds = await dialog.boundingBox();
+  expect(bounds!.width).toBeLessThanOrEqual(748);
+  await page.screenshot({
+    path: "test-results/programme-review-tablet.png",
+    fullPage: true,
+  });
+  await dialog
+    .getByRole("button", { name: "Mark as Reviewed", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole("button", { name: "Reviewed", exact: true }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "1 matching programmes" }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole("table").getByText("Reviewed", { exact: true }),
+  ).toBeVisible();
+  const reviewed = await (
+    await context.request.get(
+      "/api/programmes/catalogue?centre=GLOW_BB&review=Reviewed",
+    )
+  ).json();
+  expect(reviewed.total).toBe(1);
+  expect(reviewed.counts.reviewed).toBe(1);
+  expect(reviewed.counts.pending).toBe(1);
+  expect(reviewed.rows[0].review.conditionAssessment).toBe("Not Applicable");
+  await page
+    .getByLabel("Search records", { exact: true })
+    .fill("no matching fictional programme");
+  await expect(
+    page.getByRole("heading", { name: "No programmes match these filters" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Reset Filters", exact: true })
+    .first()
+    .click();
+  await expect(
+    page.getByRole("tab", { name: "All Centres", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "test-results/programme-catalogue-tablet.png",
+    fullPage: true,
+  });
+  for (const [id, name] of Object.entries(centreNames)) {
+    const response = await (
+      await context.request.get(`/api/programmes/catalogue?centre=${id}`)
+    ).json();
+    expect(
+      response.rows.every((p: { centre: string }) => p.centre === name),
+    ).toBe(true);
+  }
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "sync.restricted", password },
+  });
+  expect(
+    (
+      await context.request.get("/api/programmes/catalogue?centre=GLOW_BB")
+    ).status(),
+  ).toBe(403);
+  const p = reviewed.rows[0];
+  const forbidden = await context.request.post(
+    `/api/programmes/${p.id}/review`,
+    {
+      headers,
+      data: {
+        decision: "draft",
+        version: p.updatedAt,
+        reviewVersion: p.review.updatedAt,
+        sourceFingerprint: p.external.reviewFingerprint,
+        values: {
+          audience: "Both",
+          languageAssessment: "Assessed",
+          interestAssessment: "Assessed",
+          mobilityAssessment: "Assessed",
+          conditionAssessment: "Not Applicable",
+          intensity: "Low",
+          registrationStatus: "Unverified",
+        },
+      },
+    },
+  );
+  expect(forbidden.status()).toBe(403);
+  await page.goto("/programmes");
+  await expect(
+    page.getByRole("tab", { name: "GLOW Bukit Batok", exact: true }),
+  ).toBeDisabled();
 });
