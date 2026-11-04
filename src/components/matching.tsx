@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Data, label } from "@/lib/types";
 import { match, MatchPerson } from "@/lib/domain";
+import { needsReview, nextOccurrence } from "@/lib/programme-source";
 import { compareRecommendations } from "@/lib/matching";
 import Link from "next/link";
 import { Badge } from "./ui";
@@ -52,7 +53,11 @@ export default function Matching({
           ...match(
             names(member) as MatchPerson,
             recipient ? names(recipient) : undefined,
-            names(p),
+            {
+              ...names(p),
+              imported: Boolean(p.external),
+              reviewRequired: needsReview(p),
+            },
           ),
         }))
         .sort(
@@ -169,7 +174,9 @@ export default function Matching({
                         {i + 1}. {r.p.name}
                       </h2>
                       <Badge>
-                        {r.eligible ? `${r.score}% Match` : "Not Recommended"}
+                        {r.eligible
+                          ? `${r.score}% ${r.p.external ? "Compatibility" : "Match"}`
+                          : "Needs review / Not Recommended"}
                       </Badge>
                     </div>
                     <p>
@@ -186,11 +193,17 @@ export default function Matching({
                     </ul>
                     <div className="match-schedule">
                       <strong>
-                        {r.p.day} {r.p.startTime}–{r.p.endTime}
+                        {r.p.external
+                          ? nextOccurrence(r.p)
+                            ? `${nextOccurrence(r.p)!.date} ${nextOccurrence(r.p)!.startTime}-${nextOccurrence(r.p)!.endTime}`
+                            : "No confirmed upcoming session"
+                          : `${r.p.day} ${r.p.startTime}-${r.p.endTime}`}
                       </strong>
                       <span>
-                        {r.p.venue || "Venue not recorded"} ·{" "}
-                        {r.p.centre || "All centres"}
+                        {(r.p.external
+                          ? nextOccurrence(r.p)?.venue
+                          : r.p.venue) || "Venue not recorded"}{" "}
+                        · {r.p.centre || "All centres"}
                       </span>
                       <span>
                         {r.p.frequency || "Frequency not recorded"} ·{" "}
@@ -199,6 +212,12 @@ export default function Matching({
                           : `${filled} registered · capacity not recorded`}
                       </span>
                       <Badge>{r.p.registrationStatus}</Badge>
+                      {r.p.external && (
+                        <p>
+                          Program-SpaceBooking | Compatibility does not confirm
+                          registration availability. Staff review required.
+                        </p>
+                      )}
                     </div>
                     <div className="actions">
                       <Link
@@ -212,6 +231,10 @@ export default function Matching({
                           className="secondary"
                           disabled={
                             !r.eligible ||
+                            Boolean(
+                              r.p.external &&
+                              (!nextOccurrence(r.p) || needsReview(r.p)),
+                            ) ||
                             r.p.registrationStatus !== "Open" ||
                             (r.p.capacity > 0 && filled >= r.p.capacity)
                           }

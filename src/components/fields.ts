@@ -168,7 +168,7 @@ export const programmeFields: Field[] = [
     key: "registrationStatus",
     label: "Registration",
     type: "select",
-    options: opts(["Open", "Waitlist", "Closed"]),
+    options: opts(["Open", "Waitlist", "Closed", "Unverified"]),
   },
   {
     key: "status",

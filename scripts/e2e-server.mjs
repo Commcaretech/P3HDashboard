@@ -19,6 +19,8 @@ if (migration.status !== 0) process.exit(migration.status ?? 1);
 const child = spawn(
   process.execPath,
   [
+    "--import",
+    "./tests/e2e/programme-feed.mjs",
     "node_modules/next/dist/bin/next",
     "start",
     "--hostname",

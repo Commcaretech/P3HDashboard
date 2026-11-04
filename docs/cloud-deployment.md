@@ -129,3 +129,7 @@ Publish the updated source, including both schemas and `prisma/cloud/migrations/
 ## Reminder jobs and backups
 
 For the upgrade, follow [automatic reminders](automatic-reminders.md) and [migration/recovery](upgrade-migration.md). Current provider documentation: [Render free-service restrictions](https://render.com/docs/free), [Render cron jobs and UTC schedules](https://render.com/docs/cronjobs), and [Supabase backups](https://supabase.com/docs/guides/platform/backups). The email adapter uses HTTPS rather than SMTP. Keep separately stored, protected database exports and rehearse restores; do not assume the hosting plan supplies a verified backup.
+
+## Manual programme catalogue sync
+
+See [programme sync setup](programme-sync-setup.md) for server variables, centre mapping, additive migration 202611040001_programme_sync, deployment and rollback.

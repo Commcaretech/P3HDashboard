@@ -19,6 +19,9 @@ export default defineConfig({
       DATABASE_URL: `file:${resolve("data/e2e.db").replace(/\\/g, "/")}`,
       NEXT_TELEMETRY_DISABLED: "1",
       EMAIL_ENABLED: "false",
+      P3H_SYNC_ENABLED: "true",
+      P3H_PROGRAMME_FEED_URL: "https://abcdefghijklmnopqrst.supabase.co/functions/v1/p3h-programmes",
+      P3H_SYNC_SHARED_SECRET: "fictional-e2e-sync-secret-at-least-32-characters",
       NOTIFICATION_JOB_SECRET:
         "fictional-notification-job-token-at-least-32-characters",
     },

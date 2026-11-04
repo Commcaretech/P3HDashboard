@@ -4,7 +4,10 @@ export type MatchPerson = {
   conditions: string[];
   mobility: string;
 };
-export type MatchProgramme = MatchPerson;
+export type MatchProgramme = MatchPerson & {
+  imported?: boolean;
+  reviewRequired?: boolean;
+};
 export const weights = {
   condition: 35,
   language: 25,
@@ -73,12 +76,30 @@ export function match(
   );
   if (mobile) score += weights.mobility;
   if (!mobility) missing.push("Care recipient mobility");
-  const eligible = !(mobility && p.mobility && !mobile);
+  const eligible =
+    !(mobility && p.mobility && !mobile) &&
+    !(
+      p.imported &&
+      (p.reviewRequired ||
+        !p.mobility ||
+        !p.languages.length ||
+        !p.conditions.length ||
+        !p.interests.length)
+    );
   reasons.push(
     `Mobility: ${mobile ? "suitable (+10%)" : mobility ? "suitability not established (+0%)" : "information missing (+0%)"}`,
   );
   if (!eligible)
-    reasons.unshift("Not Recommended: Mobility requirement not met");
+    reasons.unshift(
+      p.imported &&
+        (p.reviewRequired ||
+          !p.mobility ||
+          !p.languages.length ||
+          !p.conditions.length ||
+          !p.interests.length)
+        ? "Staff suitability review required; compatibility does not confirm registration availability"
+        : "Not Recommended: Mobility requirement not met",
+    );
   const confidenceScore =
     (recipient?.conditions.length ? 35 : 0) +
     (language.length ? 25 : 0) +

@@ -53,6 +53,23 @@ export type Relationship = {
   relationship: string;
 };
 export type Programme = {
+  suitabilityReviewed?: boolean;
+  external?: {
+    source: string;
+    centreId: string;
+    sourceStatus: string;
+    missing: boolean;
+    occurrences: {
+      id: string;
+      date: string | null;
+      day: string;
+      startTime: string;
+      endTime: string;
+      venue: string;
+      status: string;
+      missing: boolean;
+    }[];
+  } | null;
   registeredCount?: number;
   id: string;
   name: string;

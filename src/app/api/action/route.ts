@@ -14,6 +14,7 @@ import { db } from "@/lib/db";
 import { savePerson, saveProgramme, audit } from "@/lib/records";
 import { grantSchema, roles, parseDate, today } from "@/lib/domain";
 import { reconcileAlerts, refreshAlerts } from "@/lib/alerts";
+import { needsReview, nextOccurrence } from "@/lib/programme-source";
 import { calculateFollowUp, closedGrant } from "@/lib/follow-up";
 import { completeFollowUp } from "@/lib/follow-up-service";
 const extraResolutionOpen = (data: Record<string, unknown>) =>
@@ -577,13 +578,35 @@ export async function POST(req: NextRequest) {
             await requirePersonAccess(tx, u, v.personId);
             const p = await tx.programme.findUniqueOrThrow({
               where: { id: v.programmeId },
-              include: { participations: true },
+              include: {
+                participations: true,
+                external: { include: { occurrences: true } },
+                languages: true,
+                interests: true,
+                conditions: true,
+              },
             });
             const person = await tx.person.findUniqueOrThrow({
               where: { id: v.personId },
             });
             if (person.status === "Archived" || p.status !== "Active")
               throw new Error("Choose active records");
+            if (
+              v.status === "Registered" &&
+              p.external &&
+              (needsReview({
+                ...p,
+                languages: p.languages.map(() => ({ language: { name: "" } })),
+                interests: p.interests.map(() => ({ interest: { name: "" } })),
+                conditions: p.conditions.map(() => ({
+                  condition: { name: "" },
+                })),
+              }) ||
+                !nextOccurrence(p))
+            )
+              throw new Error(
+                "Imported programme requires suitability review and a confirmed upcoming session.",
+              );
             if (
               v.status === "Registered" &&
               (p.registrationStatus !== "Open" ||

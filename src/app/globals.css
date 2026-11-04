@@ -1046,3 +1046,7 @@ dialog { max-height:calc(100dvh - 48px); overflow:auto; width:min(780px,calc(100
 @media(max-width:768px) { .actions { flex-wrap:wrap; } .page-head { flex-wrap:wrap; } .chart-grid { grid-template-columns:1fr; } .attention-item > span { white-space:normal; } }
 @media(max-width:420px) { main { padding:16px; } .stat-grid { grid-template-columns:1fr 1fr; } .stat { padding:16px; } .form-grid { grid-template-columns:1fr; } }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; animation:none!important; transition:none!important; } }
+
+.sync-spinner { display:inline-block; margin-right:.5rem; animation:sync-spin 1s linear infinite; }
+@keyframes sync-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sync-spinner { animation:none; } }

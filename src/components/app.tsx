@@ -9,6 +9,7 @@ import Alerts from "./alerts";
 import Grants from "./grants";
 import Matching from "./matching";
 import Programmes from "./programmes";
+import { sourceFields } from "@/lib/programme-source";
 import Profile from "./profile";
 import People from "./people";
 import Overview from "./overview";
@@ -253,7 +254,24 @@ export default function DashboardApp({
   const programmeEditor = (p?: Programme) =>
     setEdit({
       title: p ? "Edit programme" : "Add programme",
-      fields: programmeFields.map((f) => ({
+      fields: [
+        ...programmeFields.filter(
+          (f) => !p?.external || ![...sourceFields, "capacity"].includes(f.key),
+        ),
+        ...(p?.external
+          ? [
+              {
+                key: "suitabilityReviewed",
+                label: "Suitability review",
+                type: "select" as const,
+                options: [
+                  { value: "Pending", label: "Pending review" },
+                  { value: "Reviewed", label: "Reviewed" },
+                ],
+              },
+            ]
+          : []),
+      ].map((f) => ({
         ...f,
         section: ["name", "description", "category", "centre"].includes(f.key)
           ? "Programme"
@@ -280,7 +298,10 @@ export default function DashboardApp({
           : {}),
       })),
       initial: p
-        ? programmeValues(p)
+        ? {
+            ...programmeValues(p),
+            suitabilityReviewed: p.suitabilityReviewed ? "Reviewed" : "Pending",
+          }
         : { status: "Active", registrationStatus: "Open", capacity: 0 },
       action: "programme",
       id: p?.id,
@@ -531,6 +552,8 @@ export default function DashboardApp({
                 <Programmes
                   d={data}
                   write={write}
+                  user={u}
+                  onRefresh={load}
                   onEdit={programmeEditor}
                   onArchive={(p) => {
                     if (window.confirm(`Archive ${p.name}?`))

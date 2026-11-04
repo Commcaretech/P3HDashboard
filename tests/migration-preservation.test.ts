@@ -54,6 +54,7 @@ test("populated pre-upgrade SQLite snapshot restores and preserves every origina
       "utf8",
     ),
   );
+  copy.exec(readFileSync("prisma/migrations/202611040001_programme_sync/migration.sql", "utf8"));
   for (const { table, columns, rows } of snapshot)
     assert.deepEqual(
       copy

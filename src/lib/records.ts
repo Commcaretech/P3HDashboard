@@ -260,7 +260,52 @@ export async function saveProgramme(
   id?: string,
   version?: string,
 ) {
-  const v = programmeSchema.parse(input);
+  const imported = id
+    ? await tx.externalProgramme.findUnique({ where: { programmeId: id } })
+    : null;
+  const existingProgramme = id
+    ? await tx.programme.findUnique({ where: { id } })
+    : null;
+  const raw = input as Record<string, unknown>;
+  const v = programmeSchema.parse(
+    imported && existingProgramme
+      ? {
+          ...raw,
+          ...Object.fromEntries(
+            [
+              "name",
+              "category",
+              "centre",
+              "venue",
+              "day",
+              "startTime",
+              "endTime",
+              "frequency",
+              "capacity",
+            ].map((k) => [
+              k,
+              existingProgramme[k as keyof typeof existingProgramme],
+            ]),
+          ),
+          suitabilityReviewed:
+            raw.suitabilityReviewed === "Reviewed" ||
+            raw.suitabilityReviewed === true,
+        }
+      : raw,
+  );
+  if (
+    imported &&
+    v.registrationStatus === "Open" &&
+    (!v.suitabilityReviewed ||
+      !v.mobility ||
+      !v.languages ||
+      !v.interests ||
+      !v.conditions ||
+      imported.missing)
+  )
+    throw new Error(
+      "Review and complete imported suitability before opening registration.",
+    );
   const { languages, interests, conditions, ...data } = v;
   const before = id ? await tx.programme.findUnique({ where: { id } }) : null;
   if (id && !before) throw new Error("Record not found");

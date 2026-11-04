@@ -1460,3 +1460,150 @@ test("dashboard and follow-up dialogs fit desktop, tablet and phone screens", as
     await expect(dialog).toHaveCount(0);
   }
 });
+
+test("manual programme sync uses protected server fetch, scoped permissions and registration guards", async ({
+  page,
+  context,
+  playwright,
+}) => {
+  const headers = { Origin: "http://127.0.0.1:3100" };
+  const anonymous = await playwright.request.newContext({
+    baseURL: "http://127.0.0.1:3100",
+  });
+  expect(
+    (await anonymous.post("/api/programmes/sync", { headers })).status(),
+  ).toBe(401);
+  await anonymous.dispose();
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "fake.admin", password },
+  });
+  expect(
+    (
+      await context.request.post("/api/programmes/sync", {
+        headers: { Origin: "https://wrong.example" },
+      })
+    ).status(),
+  ).toBe(403);
+  expect(
+    (
+      await context.request.post("/api/programmes/sync", {
+        headers,
+        data: "x".repeat(1025),
+      })
+    ).status(),
+  ).toBe(413);
+  const browserUpstream: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes("supabase.co")) browserUpstream.push(r.url());
+  });
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.goto("/programmes");
+  const button = page.getByRole("button", { name: "Sync Now", exact: true });
+  await expect(button).toBeEnabled();
+  await button.click();
+  await expect(
+    page.getByRole("button", { name: "Syncing programmes..." }),
+  ).toBeDisabled();
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "Imported 1; updated 0; unchanged 0; skipped 0." }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Fictional synced programme", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("table").getByText("Unverified", { exact: true }),
+  ).toBeVisible();
+  expect(browserUpstream).toEqual([]);
+  const catalogue = await (await context.request.get("/api/data")).json();
+  const imported = catalogue.programmes.find(
+    (p: { external: unknown }) => p.external,
+  );
+  const person = catalogue.people[0];
+  const register = await context.request.post("/api/action", {
+    headers,
+    data: {
+      action: "participation",
+      data: {
+        personId: person.id,
+        programmeId: imported.id,
+        status: "Registered",
+      },
+    },
+  });
+  expect(register.ok()).toBe(false);
+  const second = await context.request.post("/api/programmes/sync", {
+    headers,
+  });
+  expect(second.ok()).toBe(true);
+  expect((await second.json()).unchanged).toBe(1);
+  const createUser = async (
+    role: string,
+    username: string,
+    centres: string,
+  ) => {
+    const r = await context.request.post("/api/action", {
+      headers,
+      data: {
+        action: "user",
+        data: {
+          name: "Fictional sync user",
+          username,
+          password,
+          role,
+          allCentres: "Selected centres",
+          centres,
+        },
+      },
+    });
+    expect(r.ok()).toBe(true);
+  };
+  for (const [role, username, centre] of [
+    ["Staff", "sync.staff", "SEEN Bukit Batok"],
+    ["Read Only", "sync.reader", "SEEN Bukit Batok"],
+    ["Manager", "sync.manager", "SEEN Bukit Batok"],
+    ["Manager", "sync.restricted", "GLOW Nanyang"],
+  ])
+    await createUser(role, username, centre);
+  for (const username of ["sync.staff", "sync.reader"]) {
+    await context.request.post("/api/auth", {
+      headers,
+      data: { action: "login", username, password },
+    });
+    expect(
+      (
+        await context.request.post("/api/programmes/sync", { headers })
+      ).status(),
+    ).toBe(403);
+  }
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "sync.manager", password },
+  });
+  const manager = await context.request.post("/api/programmes/sync", {
+    headers,
+  });
+  expect(manager.ok()).toBe(true);
+  expect((await manager.json()).unchanged).toBe(1);
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "sync.restricted", password },
+  });
+  const restricted = await context.request.post("/api/programmes/sync", {
+    headers,
+  });
+  expect(restricted.ok()).toBe(true);
+  expect((await restricted.json()).skipped).toBe(1);
+  expect(
+    (await (await context.request.get("/api/data")).json()).programmes.some(
+      (p: { id: string }) => p.id === imported.id,
+    ),
+  ).toBe(false);
+  const status = await (
+    await context.request.get("/api/programmes/sync")
+  ).text();
+  expect(status).not.toContain("fictional-e2e-sync-secret");
+  expect(status).not.toContain("passwordHash");
+});
