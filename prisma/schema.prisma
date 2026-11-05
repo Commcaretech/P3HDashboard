@@ -146,6 +146,7 @@ model Assessment {
  @@index([personId])
 }
 model Programme {
+ interestTagsReviewed Boolean @default(false)
  review ProgrammeReview?
  external ExternalProgramme?
  suitabilityReviewed Boolean @default(false)
@@ -328,6 +329,7 @@ model NotificationDelivery {
 }
 
 model ExternalProgramme {
+ programmeType String @default("")
  reviewFingerprint String @default("")
  eligibilityRulesVersion Int @default(0)
  groupingStatus String @default("Unverified")
@@ -348,6 +350,7 @@ model ExternalProgramme {
  @@unique([source,sourceKey])
 }
 model ExternalOccurrence {
+ visibilityKnown Boolean @default(false)
  eligibilityStatus String @default("unverified")
  schedulingStatus String @default("not_checked")
  recommendationEligible Boolean @default(false)
@@ -415,4 +418,12 @@ model ProgrammeReview {
  reviewedAt DateTime?
  updatedAt DateTime @updatedAt
  @@index([status])
+}
+
+model MaintenanceState {
+ id String @id
+ lastCompletedDate String @default("")
+ lastCompletedAt DateTime?
+ leaseUntil DateTime?
+ leaseToken String?
 }

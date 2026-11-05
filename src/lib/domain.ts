@@ -232,13 +232,15 @@ export const grantSchema = z.object({
   notes: text,
   assignedId: text,
 });
+// Reuse the formatter, never the date: task sorting can call this hundreds of times.
+const singaporeDate = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Singapore",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 export function today() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Singapore",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
+  return singaporeDate.format(new Date());
 }
 export function birthday(dob: Date, now: string) {
   const year = Number(now.slice(0, 4));

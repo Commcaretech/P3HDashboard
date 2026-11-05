@@ -1,20 +1,24 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useResource } from "./use-resource";
 import Link from "next/link";
 import {
   LoaderCircle,
   RefreshCw,
   ClipboardCheck,
   CalendarDays,
-  AlertCircle,
   Layers,
 } from "lucide-react";
-import { Programme, Data, Staff } from "@/lib/types";
+import ProgrammeInterestTags from "./programme-interest-tags";
+import { programmeInterestEvidence } from "@/lib/programme-interests";
+import { scheduleLabel } from "@/lib/programme-source";
+import { Programme, Staff } from "@/lib/types";
 import {
   catalogueCounts,
   reviewStatus,
   reviewStatuses,
   nextOccurrence,
+  futureOccurrences,
   eligibilityLabels,
   sourceStates,
   suitabilityIssues,
@@ -32,6 +36,7 @@ type Catalogue = {
   page: number;
   size: number;
   counts: Counts;
+  diagnostics: { unknownVisibility: number; undated: number };
   centres: {
     id: string;
     label: string;
@@ -63,14 +68,14 @@ type SyncInfo = {
   }[];
 };
 export default function Programmes({
-  d,
   write,
   onEdit,
   onArchive,
   user,
   onRefresh,
+  dataRevision = 0,
 }: {
-  d: Data;
+  dataRevision?: number;
   write: boolean;
   user: Pick<Staff, "role">;
   onRefresh: () => Promise<void>;
@@ -78,39 +83,24 @@ export default function Programmes({
   onArchive: (p: Programme) => void;
 }) {
   const [f, setF] = useFilters(),
-    [result, setResult] = useState<{ key: string; data: Catalogue } | null>(
-      null,
-    ),
     [info, setInfo] = useState<SyncInfo | null>(null),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState(""),
-    [error, setError] = useState(""),
     [review, setReview] = useState<Programme | null>(null),
+    [tagEditor, setTagEditor] = useState<Programme | null>(null),
     [revision, setRevision] = useState(0),
     [expanded, setExpanded] = useState(false);
   const inFlight = useRef(false),
     query = new URLSearchParams(f).toString();
-  useEffect(() => {
-    let active = true;
-    request(`/api/programmes/catalogue?${query}`)
-      .then((data) => {
-        if (active) {
-          setResult({ key: query, data });
-          setError("");
-        }
-      })
-      .catch((e) => {
-        if (active) {
-          setError(
-            e instanceof Error ? e.message : "Unable to load programmes",
-          );
-          setResult(null);
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, [query, d, revision]);
+  const resource = useResource<Catalogue>(
+    "programmes",
+    `/api/programmes/catalogue?${query}`,
+    `${dataRevision}:${revision}`,
+  );
+  const result = resource.data
+    ? { key: resource.busy ? "pending" : query, data: resource.data }
+    : null;
+  const error = resource.error;
   useEffect(() => {
     let active = true;
     request("/api/programmes/sync")
@@ -123,7 +113,7 @@ export default function Programmes({
     return () => {
       active = false;
     };
-  }, [revision, d]);
+  }, [revision, dataRevision]);
   const refresh = async () => {
     await onRefresh();
     setRevision((v) => v + 1);
@@ -248,31 +238,81 @@ export default function Programmes({
             <strong>{counts?.imported ?? 0}</strong>
             <span>Imported programmes</span>
           </div>
-          <div className="catalogue-metric">
-            <CalendarDays size={18} />
-            <strong>{counts?.upcoming ?? 0}</strong>
-            <span>Upcoming confirmed sessions</span>
-          </div>
           <button
-            className={`catalogue-metric metric-action ${f.review === "Pending Review" ? "selected" : ""}`}
+            className="catalogue-metric metric-action"
+            onClick={() => change("schedule", "confirmed")}
+          >
+            <CalendarDays size={18} />
+            <strong>{counts?.scheduledProgrammes ?? 0}</strong>
+            <span>Programmes with confirmed upcoming sessions</span>
+            <small>{counts?.upcoming ?? 0} upcoming sessions</small>
+          </button>
+          <button
+            className="catalogue-metric metric-action"
+            onClick={() => change("schedule", "unconfirmed")}
+          >
+            <CalendarDays size={18} />
+            <strong>{counts?.unconfirmed ?? 0}</strong>
+            <span>Programmes without confirmed schedules</span>
+            <small>Dates or source confirmation may be missing</small>
+          </button>
+          <button
+            className="catalogue-metric metric-action"
+            onClick={() =>
+              change("tagCorrections", f.tagCorrections ? "" : "1")
+            }
+          >
+            <ClipboardCheck size={18} />
+            <strong>{counts?.tagCorrections ?? 0}</strong>
+            <span>Interest tags to check</span>
+            <small>Optional staff corrections</small>
+          </button>
+        </div>
+        <div className="actions">
+          <button
+            className="secondary"
             onClick={() => change("review", "Pending Review")}
             aria-label={`Pending Reviews: ${counts?.pending ?? 0}`}
           >
-            <ClipboardCheck size={18} />
-            <strong>{counts?.pending ?? 0}</strong>
-            <span>Pending Reviews</span>
-            <small>Open review queue</small>
+            Optional reviews: {counts?.pending ?? 0} pending
           </button>
-          <button
-            className={`catalogue-metric metric-action ${f.concerns ? "selected" : ""}`}
-            onClick={() => change("concerns", f.concerns ? "" : "1")}
-          >
-            <AlertCircle size={18} />
-            <strong>{counts?.concerns ?? 0}</strong>
-            <span>Scheduling concerns</span>
-            <small>View flagged programmes</small>
-          </button>
+          <small>
+            Reviews help verify suitability and registration; they do not block
+            interest suggestions.
+          </small>
         </div>
+        {Boolean(counts?.concerns) && (
+          <details className="notice">
+            <summary>
+              Scheduling diagnostics: {counts?.concerns} programmes need a
+              source check
+            </summary>
+            <p>
+              Only explicit source problems such as room conflicts, closures,
+              invalid times or unavailable venues are counted here. Missing
+              verification and uncertain series grouping are not scheduling
+              conflicts.
+            </p>
+            <button
+              className="secondary"
+              onClick={() => change("concerns", "1")}
+            >
+              View source scheduling issues
+            </button>
+          </details>
+        )}
+        {Boolean(catalog?.diagnostics.unknownVisibility) && (
+          <details className="sync-history">
+            <summary>Import diagnostics: source metadata incomplete</summary>
+            <p>
+              {catalog?.diagnostics.unknownVisibility} sessions have no explicit
+              source visibility metadata. Dates are retained, but these sessions
+              are not advertised as confirmed. Run Sync Now against the updated
+              feed to refresh visibility; a failed or legacy response is not
+              treated as a room conflict.
+            </p>
+          </details>
+        )}
         <p role="status" aria-live="polite">
           {message}
         </p>
@@ -329,9 +369,9 @@ export default function Programmes({
                   sessions
                 </span>
                 <small>
-                  {c.counts.pending + c.counts.inReview + c.counts.recheck}{" "}
-                  awaiting review / {c.counts.reviewed} reviewed /{" "}
-                  {c.counts.concerns} scheduling concerns
+                  {c.counts.scheduledProgrammes} dated programmes /{" "}
+                  {c.counts.unconfirmed} schedule not confirmed /{" "}
+                  {c.counts.reviewed} staff reviewed
                 </small>
               </>
             ) : (
@@ -344,8 +384,8 @@ export default function Programmes({
         <div>
           <h2>Programme Catalogue</h2>
           <p>
-            Source schedules, suitability review and registration availability
-            are separate.
+            Find activities by interests. Suitability review and registration
+            checks are optional follow-up steps.
           </p>
         </div>
         <div className="row-actions">
@@ -353,7 +393,7 @@ export default function Programmes({
             className="secondary link-button"
             href={`/matching${f.centre ? `?centre=${encodeURIComponent(f.centre)}` : ""}`}
           >
-            Find recommendations
+            Find Recommendations
           </Link>
           {write && <button onClick={() => onEdit()}>+ Add programme</button>}
         </div>
@@ -503,7 +543,7 @@ export default function Programmes({
             "Centre",
             "Next Session",
             "Category",
-            "Review Status",
+            "Optional Review",
             "Registration Status",
             "Actions",
           ]}
@@ -530,7 +570,9 @@ export default function Programmes({
             sortableColumns: [0, 1, 2, 3, 4, 5],
           }}
           rows={rows.map((p) => {
-            const next = nextOccurrence(p, f.date);
+            const next =
+              nextOccurrence(p, f.date) ||
+              futureOccurrences(p).find((o) => !f.date || o.date! >= f.date);
             return {
               id: p.id,
               cells: [
@@ -538,6 +580,11 @@ export default function Programmes({
                   <summary>
                     <span>{p.name}</span>{" "}
                     <Badge>{p.external ? "Synced" : "Manual"}</Badge>
+                    <small>
+                      Interests:{" "}
+                      {programmeInterestEvidence(p).tags.join(", ") ||
+                        "No interest tags yet"}
+                    </small>
                     {p.external && p.external.groupingStatus !== "Verified" && (
                       <small>Series grouping unverified</small>
                     )}
@@ -549,6 +596,10 @@ export default function Programmes({
                     {p.description || "No additional programme information"}
                   </p>
                   <p>
+                    Source status: {p.external?.sourceStatus || p.status} /
+                    Schedule: {scheduleLabel(p)} / Programme type:{" "}
+                    {p.external?.programmeType || "Not recorded"}
+                    <br />
                     Source eligibility:{" "}
                     {sourceStates(p)
                       .map((s) => eligibilityLabels[s] || s)
@@ -584,22 +635,26 @@ export default function Programmes({
                     <p>
                       {next.startTime} - {next.endTime}
                     </p>
-                    <small>{next.venue}</small>
+                    <small>{next.venue || "Venue not confirmed"}</small>
+                    <small>{scheduleLabel(p)}</small>
                   </div>
                 ) : p.external ? (
-                  "No upcoming sessions"
+                  "Schedule Not Confirmed"
                 ) : (
                   [p.day, p.startTime, p.venue].filter(Boolean).join(" / ") ||
                   "No confirmed dates"
                 ),
                 p.category || "Uncategorised",
                 <div key="review">
-                  <Badge>{reviewStatus(p)}</Badge>
+                  <span
+                    className={
+                      reviewStatus(p) === "Reviewed" ? "badge success" : "muted"
+                    }
+                  >
+                    {reviewStatus(p)}
+                  </span>
                   {p.external && suitabilityIssues(p).length > 0 && (
-                    <small>
-                      {suitabilityIssues(p).length} suitability items
-                      outstanding
-                    </small>
+                    <small>Suitability not yet verified</small>
                   )}
                 </div>,
                 <Badge key="registration">{p.registrationStatus}</Badge>,
@@ -607,13 +662,19 @@ export default function Programmes({
                   {p.external ? (
                     <>
                       <button
-                        className={
-                          reviewStatus(p) === "Reviewed" ? "secondary" : ""
-                        }
+                        className={"secondary"}
                         onClick={() => setReview(p)}
                       >
                         {write ? "Review Programme" : "View review"}
                       </button>
+                      {write && (
+                        <button
+                          className="secondary"
+                          onClick={() => setTagEditor(p)}
+                        >
+                          Edit interest tags
+                        </button>
+                      )}
                       {write && (
                         <ActionMenu label="More programme actions">
                           <button
@@ -654,6 +715,14 @@ export default function Programmes({
               ],
             };
           })}
+        />
+      )}
+      {tagEditor && catalog && (
+        <ProgrammeInterestTags
+          p={tagEditor}
+          vocabulary={catalog.vocabulary.interests}
+          onClose={() => setTagEditor(null)}
+          onSaved={refresh}
         />
       )}
       {review && catalog && (

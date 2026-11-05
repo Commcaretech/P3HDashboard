@@ -115,6 +115,7 @@ const item = z.object({
   centreId: z.string().min(1).max(100).nullable(),
   rulesVersion: z.number().default(0),
   category: nullable,
+  programmeType: nullable.optional(),
   sourceStatus: nullable,
   sourceUpdatedAt: timestamp,
   recurrence: nullable,
@@ -398,21 +399,25 @@ export async function syncProgrammes(
             where: {
               source_sourceKey: { source, sourceKey: value.sourceProgrammeKey },
             },
-            include: { programme: true },
+            include: { programme: true, occurrences: true },
           });
           if (old && !centreAllowed(u, old.programme.centre))
             throw new SyncError(
               403,
               "A programme centre change requires an administrator review.",
             );
+          const suppliedOccurrences = [
+            ...value.occurrences,
+            ...value.scheduleTemplates,
+            ...value.excludedOccurrences,
+          ];
           if (
             !old &&
             (!value.name ||
-              [
-                ...value.occurrences,
-                ...value.scheduleTemplates,
-                ...value.excludedOccurrences,
-              ].every((o) => o.eligibility?.identifiableProgramme === false))
+              (suppliedOccurrences.length > 0 &&
+                suppliedOccurrences.every(
+                  (o) => o.eligibility?.identifiableProgramme === false,
+                )))
           ) {
             totals.skipped++;
             continue;
@@ -531,6 +536,7 @@ export async function syncProgrammes(
               programmeId: p.id,
               source,
               sourceKey: value.sourceProgrammeKey,
+              programmeType: value.programmeType ?? "",
               centreId: value.centreId!,
               reviewFingerprint,
               groupingStatus,
@@ -540,6 +546,7 @@ export async function syncProgrammes(
               fingerprint,
             },
             update: {
+              programmeType: value.programmeType ?? "",
               centreId: value.centreId!,
               reviewFingerprint,
               groupingStatus,
@@ -570,6 +577,15 @@ export async function syncProgrammes(
             update: {},
           });
           for (const o of schedule) {
+            const prior = old?.occurrences.find(
+              (previous) => previous.sourceKey === o.occurrenceKey,
+            );
+            const visibilityKnown =
+              Boolean(o.sourceVisibility) ||
+              Boolean(
+                prior &&
+                (prior.visibilityKnown || old?.eligibilityRulesVersion === 2),
+              );
             const data = {
               eligibilityStatus:
                 o.eligibility?.eligibilityStatus ?? "unverified",
@@ -577,11 +593,23 @@ export async function syncProgrammes(
                 o.eligibility?.schedulingVerification.status ?? "not_checked",
               recommendationEligible:
                 o.eligibility?.recommendationEligible ?? false,
-              reasonCodes: o.eligibility?.reasonCodes ?? [
-                "eligibility_not_provided",
-              ],
-              timetableVisible: o.sourceVisibility?.timetableVisible ?? false,
-              calendarVisible: o.sourceVisibility?.calendarVisible ?? false,
+              reasonCodes: o.eligibility
+                ? [
+                    ...new Set([
+                      ...o.eligibility.reasonCodes,
+                      ...o.eligibility.schedulingVerification.reasonCodes,
+                    ]),
+                  ]
+                : ["eligibility_not_provided"],
+              visibilityKnown,
+              timetableVisible:
+                o.sourceVisibility?.timetableVisible ??
+                prior?.timetableVisible ??
+                false,
+              calendarVisible:
+                o.sourceVisibility?.calendarVisible ??
+                prior?.calendarVisible ??
+                false,
               sourceActivityName: o.sourceActivityName ?? value.name,
               independentSession: o.independentSession ?? false,
               sourceRecordIds: o.sourceRecordIds,

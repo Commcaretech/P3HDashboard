@@ -51,6 +51,10 @@ export type Relationship = {
   memberId: string;
   recipientId: string;
   relationship: string;
+  member?: Pick<Person, "id" | "name" | "alias" | "memberId">;
+  recipient?: Pick<Person, "id" | "name" | "alias" | "memberId"> & {
+    conditions?: Person["conditions"];
+  };
 };
 export type ProgrammeReview = {
   status: string;
@@ -70,9 +74,11 @@ export type ProgrammeReview = {
   updatedAt: string | Date;
 };
 export type Programme = {
+  interestTagsReviewed?: boolean;
   review?: ProgrammeReview | null;
   suitabilityReviewed?: boolean;
   external?: {
+    programmeType?: string;
     reviewFingerprint?: string;
     eligibilityRulesVersion?: number;
     groupingStatus?: string;
@@ -82,6 +88,7 @@ export type Programme = {
     sourceStatus: string;
     missing: boolean;
     occurrences: {
+      visibilityKnown?: boolean;
       eligibilityStatus?: string;
       schedulingStatus?: string;
       recommendationEligible?: boolean;
@@ -189,7 +196,38 @@ export type Audit = {
   changes: { before: unknown; after: unknown };
 };
 export type Data = {
+  myWorkSummary?: {
+    cases: number;
+    unassigned: number;
+    birthdays: number;
+    grantFollowups: number;
+    workload: {
+      id: string;
+      name: string;
+      cases: number;
+      alerts: number;
+      grants: number;
+    }[];
+  };
   dashboardSummary?: {
+    totals?: {
+      members: number;
+      recipients: number;
+      activeCases: number;
+      dementia: number;
+      birthdays: number;
+      pendingGrants: number;
+      today: number;
+      overdue: number;
+      outstanding: number;
+      grantFollowups?: number;
+    };
+    charts?: {
+      languages: { name: string; count: number }[];
+      onboarding: { name: string; count: number }[];
+      grantStatus: { name: string; count: number }[];
+      overdueStaff: { name: string; count: number }[];
+    };
     conditions: { name: string; count: number }[];
     activeProgrammes: number;
     completedThisMonth: number;

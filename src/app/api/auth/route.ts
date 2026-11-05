@@ -10,16 +10,31 @@ import {
   tokenHash,
 } from "@/lib/auth";
 import { checkOrigin, errorResponse } from "@/lib/http";
+import { permissionKey, privateHeaders } from "@/lib/permission-key";
 import { checkSetupAccess } from "@/lib/setup-access";
 export async function GET() {
   try {
     const user = await currentUser();
-    return NextResponse.json({
-      user: user ? { id: user.id, name: user.name, role: user.role } : null,
-      setup: (await db.user.count()) === 0,
-      setupRequiresToken: Boolean(process.env.SETUP_TOKEN),
-      hosted: process.env.DATABASE_URL?.startsWith("postgres") ?? false,
-    });
+    return NextResponse.json(
+      {
+        user: user
+          ? {
+              id: user.id,
+              name: user.name,
+              role: user.role,
+              accessKey: permissionKey(user),
+            }
+          : null,
+        setup: user ? false : (await db.user.count()) === 0,
+        setupRequiresToken: Boolean(process.env.SETUP_TOKEN),
+        hosted: process.env.DATABASE_URL?.startsWith("postgres") ?? false,
+      },
+      {
+        headers: user
+          ? privateHeaders(user)
+          : { "Cache-Control": "private, no-store" },
+      },
+    );
   } catch {
     return NextResponse.json(
       {

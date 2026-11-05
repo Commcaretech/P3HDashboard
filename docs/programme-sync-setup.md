@@ -1,5 +1,7 @@
 # Manual programme synchronisation
 
+See [simpler import and senior interest suggestions](interest-based-programmes.md) for migration 202611040003_interest_suggestions, legacy schedule diagnosis, optional reviews and the current recommendation rules. Interest suggestions do not require review completion; registration remains guarded.
+
 P3HDashboard consumes the protected Program-SpaceBooking feed. It never writes upstream or sends personal records. Opening the catalogue only reads status; Sync Now explicitly starts a POST. No deployment was performed by this change.
 
 ## Server environment

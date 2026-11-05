@@ -1,4 +1,5 @@
 "use client";
+import { apiFetch, clientRequestEpoch } from "@/lib/client-http";
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Person, Programme } from "@/lib/types";
@@ -21,18 +22,26 @@ export class RequestError extends Error {
     super(message);
   }
 }
-export async function request(url: string, body?: unknown) {
-  const r = await fetch(
+export async function request(
+  url: string,
+  body?: unknown,
+  signal?: AbortSignal,
+) {
+  const epoch = clientRequestEpoch();
+  const r = await apiFetch(
     url,
     body
       ? {
+          signal,
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         }
-      : { cache: "no-store" },
+      : { cache: "no-store", signal },
   );
   const j = await r.json();
+  if (epoch !== clientRequestEpoch())
+    throw new DOMException("Obsolete authenticated response", "AbortError");
   if (!r.ok) throw new RequestError(j.error ?? "Unable to load", r.status);
   return j;
 }

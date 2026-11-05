@@ -1,5 +1,7 @@
 # Programme Catalogue and suitability reviews
 
+The [interest-based programme guide](interest-based-programmes.md) supersedes mandatory review/schedule gating for suggestions and the prominent warning metrics described in this earlier upgrade. Reviews remain optional quality/registration workflows; source visibility and cancellation controls still apply.
+
 The catalogue keeps four separate decisions: source eligibility, source scheduling verification, P3H suitability approval and registration availability. It preserves manual programmes and all existing programme IDs, vocabulary links and participation records.
 
 ## Staff workflow

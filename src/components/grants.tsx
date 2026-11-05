@@ -1,21 +1,45 @@
 "use client";
+import { useResource } from "./use-resource";
+import Link from "next/link";
 import { closedGrant } from "@/lib/follow-up";
 import { Data, Grant, label, day } from "@/lib/types";
 import { Table, Badge, PersonLink } from "./ui";
 import { useFilters, FilterBar } from "./common";
 import SupportExtraction from "./support-extraction";
 export default function Grants({
-  d,
+  d: baseData,
+  revision = 0,
   write,
   onEdit,
   onSaved,
 }: {
   d: Data;
+  revision?: number;
   write: boolean;
   onEdit: (g?: Grant) => void;
   onSaved: () => Promise<void>;
 }) {
   const [f, setF] = useFilters();
+  const query = new URLSearchParams(f).toString();
+  const {
+    data: result,
+    error,
+    busy,
+    reload,
+  } = useResource<{
+    grants: Data["grants"];
+    people: Data["people"];
+    total: number;
+    page: number;
+    size: number;
+    statuses: string[];
+    counts: { active: number; due: number; overdue: number; completed: number };
+  }>("grants", `/api/grants?${query}`, revision);
+  const d = {
+    ...baseData,
+    grants: result?.grants ?? [],
+    people: result?.people ?? [],
+  };
   const rows = d.grants.filter(
     (g) =>
       (!f.q ||
@@ -42,7 +66,39 @@ export default function Grants({
       (!f.scheme || g.scheme.name === f.scheme),
   );
   return (
-    <>
+    <div className="grants-workspace">
+      <div className="stat-grid grant-metrics">
+        {[
+          [
+            "Active Applications",
+            result?.counts.active ?? 0,
+            "/grants?open=true",
+          ],
+          ["Follow-ups Due", result?.counts.due ?? 0, "/alerts?type=Grant"],
+          [
+            "Overdue Follow-ups",
+            result?.counts.overdue ?? 0,
+            "/grants?time=Overdue",
+          ],
+          ["Completed Applications", result?.counts.completed ?? 0, "/grants"],
+        ].map(([name, value, href]) => (
+          <Link className="stat" key={name} href={String(href)}>
+            <small>{name}</small>
+            <strong>{value}</strong>
+            <span>View support records</span>
+          </Link>
+        ))}
+      </div>
+      {error && (
+        <p role="alert" className="error">
+          {error} <button onClick={reload}>Retry grants</button>
+        </p>
+      )}
+      {busy && (
+        <p className="inline-progress" role="status">
+          Refreshing grants...
+        </p>
+      )}
       {write && (
         <div className="actions">
           <button onClick={() => onEdit()}>+ Add grant / support</button>
@@ -62,7 +118,7 @@ export default function Grants({
           {
             key: "status",
             label: "Status",
-            values: d.grants.map((g) => g.status),
+            values: result?.statuses ?? [],
           },
           {
             key: "scheme",
@@ -72,6 +128,15 @@ export default function Grants({
         ]}
       />
       <Table
+        server={{
+          total: result?.total ?? 0,
+          page: result?.page ?? 1,
+          size: result?.size ?? 20,
+          onPage: (n) => setF({ ...f, page: String(n) }),
+          onSize: (n) => setF({ ...f, size: String(n), page: "1" }),
+          onSort: () => {},
+          sortableColumns: [],
+        }}
         headers={[
           "Scheme",
           "Person",
@@ -154,6 +219,6 @@ export default function Grants({
           ],
         }))}
       />
-    </>
+    </div>
   );
 }

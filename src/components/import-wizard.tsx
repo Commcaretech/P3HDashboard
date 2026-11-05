@@ -1,4 +1,5 @@
 "use client";
+import {apiFetch} from "@/lib/client-http";
 import { bulkReview, reviewCategory } from "@/lib/import-review";
 import { useState } from "react";
 import Link from "next/link";
@@ -14,7 +15,7 @@ type ReviewRow = ImportRow & {
   assessmentOwner?: string;
 };
 async function post(body: unknown) {
-  const r = await fetch("/api/import", {
+  const r = await apiFetch("/api/import", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -99,7 +100,7 @@ export default function ImportWizard({
                 void work(async () => {
                   const fd = new FormData();
                   fd.set("file", f);
-                  const r = await fetch("/api/import", {
+                  const r = await apiFetch("/api/import", {
                     method: "POST",
                     body: fd,
                   });

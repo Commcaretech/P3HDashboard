@@ -1,4 +1,5 @@
 import { searchText } from "@/lib/query";
+import { privateHeaders } from "@/lib/permission-key";
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { db, personInclude } from "@/lib/db";
@@ -30,9 +31,38 @@ export async function GET(req: NextRequest) {
       });
     if (f.centre) and.push({ centre: f.centre });
     if (f.language)
-      and.push({ languages: { some: { language: { name: f.language } } } });
+      and.push({
+        OR: [
+          { preferredLanguage: f.language },
+          { languages: { some: { language: { name: f.language } } } },
+        ],
+      });
     if (f.condition)
-      and.push({ conditions: { some: { condition: { name: f.condition } } } });
+      and.push({
+        OR: [
+          { conditions: { some: { condition: { name: f.condition } } } },
+          ...(kind === "Member"
+            ? [
+                {
+                  caregiverLinks: {
+                    some: {
+                      recipient: {
+                        AND: [
+                          personScope(u),
+                          {
+                            conditions: {
+                              some: { condition: { name: f.condition } },
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+              ]
+            : []),
+        ],
+      });
     if (f.interest)
       and.push({ interests: { some: { interest: { name: f.interest } } } });
     if (f.mobility) and.push({ mobility: f.mobility });
@@ -64,63 +94,115 @@ export async function GET(req: NextRequest) {
     const base = { AND: [personScope(u), { kind }] };
     const total = await db.person.count({ where: { AND: and } });
     const activePage = Math.min(page, Math.max(1, Math.ceil(total / size)));
-    const [people, centres, languages, conditions, interests, mobility, tags] =
-      await Promise.all([
-        db.person.findMany({
-          where: { AND: and },
-          skip: (activePage - 1) * size,
-          take: size,
-          orderBy: [
-            sort === "assigned"
-              ? { assigned: { name: direction } }
-              : { [sort]: direction },
-            { memberId: "asc" },
-            { id: "asc" },
-          ],
-          include: {
-            ...personInclude,
-            assigned: { select: { name: true } },
-            caregiverLinks: { where: { recipient: personScope(u) } },
-            recipientLinks: { where: { member: personScope(u) } },
-            participations: {
-              where: { programme: programmeScope(u) },
-              include: { programme: { select: { name: true } } },
-            },
-            alerts: {
-              where: { status: "Pending" },
-              orderBy: { dueDate: "asc" },
-              include: { assigned: { select: { name: true } } },
+    const [
+      people,
+      centres,
+      languages,
+      conditions,
+      interests,
+      mobility,
+      tags,
+      preferredLanguages,
+    ] = await Promise.all([
+      db.person.findMany({
+        where: { AND: and },
+        skip: (activePage - 1) * size,
+        take: size,
+        orderBy: [
+          sort === "assigned"
+            ? { assigned: { name: direction } }
+            : { [sort]: direction },
+          { memberId: "asc" },
+          { id: "asc" },
+        ],
+        omit: { rawImport: true },
+        include: {
+          ...personInclude,
+          assigned: { select: { name: true } },
+          caregiverLinks: {
+            where: { recipient: personScope(u) },
+            include: {
+              recipient: {
+                select: {
+                  id: true,
+                  name: true,
+                  alias: true,
+                  memberId: true,
+                  conditions: { include: { condition: true } },
+                },
+              },
             },
           },
-        }),
-        db.person.findMany({
-          where: base,
-          select: { centre: true },
-          distinct: ["centre"],
-        }),
-        db.language.findMany({
-          where: { people: { some: { person: base } } },
-          select: { name: true },
-        }),
-        db.medicalCondition.findMany({
-          where: { people: { some: { person: base } } },
-          select: { name: true },
-        }),
-        db.interest.findMany({
-          where: { people: { some: { person: base } } },
-          select: { name: true },
-        }),
-        db.person.findMany({
-          where: base,
-          select: { mobility: true },
-          distinct: ["mobility"],
-        }),
-        db.person.findMany({
-          where: base,
-          select: { tags: true },
-          distinct: ["tags"],
-        }),
-      ]);
+          recipientLinks: {
+            where: { member: personScope(u) },
+            include: {
+              member: {
+                select: { id: true, name: true, alias: true, memberId: true },
+              },
+            },
+          },
+          participations: {
+            where: { programme: programmeScope(u) },
+            include: { programme: { select: { name: true } } },
+          },
+          alerts: {
+            where: { status: "Pending" },
+            orderBy: { dueDate: "asc" },
+            include: { assigned: { select: { name: true } } },
+          },
+        },
+      }),
+      db.person.findMany({
+        where: base,
+        select: { centre: true },
+        distinct: ["centre"],
+      }),
+      db.language.findMany({
+        where: { people: { some: { person: base } } },
+        select: { name: true },
+      }),
+      db.medicalCondition.findMany({
+        where: {
+          people: {
+            some: {
+              person: {
+                AND: [
+                  personScope(u),
+                  {
+                    OR: [
+                      base,
+                      ...(kind === "Member"
+                        ? [{ recipientLinks: { some: { member: base } } }]
+                        : []),
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        },
+        select: { name: true },
+      }),
+      db.interest.findMany({
+        where: { people: { some: { person: base } } },
+        select: { name: true },
+      }),
+      db.person.findMany({
+        where: base,
+        select: { mobility: true },
+        distinct: ["mobility"],
+      }),
+      db.person.findMany({
+        where: base,
+        select: { tags: true },
+        distinct: ["tags"],
+      }),
+      db.person.findMany({
+        where: base,
+        select: { preferredLanguage: true },
+        distinct: ["preferredLanguage"],
+      }),
+    ]);
     return NextResponse.json(
       {
         people: people.map((p) => ({ ...p, rawImport: null })),
@@ -129,7 +211,14 @@ export async function GET(req: NextRequest) {
         size,
         filters: {
           centre: centres.map((p) => p.centre),
-          language: languages.map((p) => p.name),
+          language: [
+            ...new Set([
+              ...languages.map((p) => p.name),
+              ...preferredLanguages
+                .map((p) => p.preferredLanguage)
+                .filter(Boolean),
+            ]),
+          ].sort(),
           condition: conditions.map((p) => p.name),
           interest: interests.map((p) => p.name),
           mobility: mobility.map((p) => p.mobility),
@@ -140,7 +229,7 @@ export async function GET(req: NextRequest) {
           ],
         },
       },
-      { headers: { "Cache-Control": "private, no-store" } },
+      { headers: privateHeaders(u) },
     );
   } catch (e) {
     return errorResponse(e);

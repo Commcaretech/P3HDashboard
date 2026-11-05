@@ -1,9 +1,22 @@
 "use client";
+import { useResource } from "./use-resource";
 import { Data } from "@/lib/types";
 import { Table } from "./ui";
 import { useFilters, FilterBar } from "./common";
-export default function AuditLog({ d }: { d: Data }) {
+export default function AuditLog({ d: baseData }: { d: Data }) {
   const [f, setF] = useFilters();
+  const {
+    data: result,
+    error,
+    busy,
+    reload,
+  } = useResource<{
+    audit: Data["audit"];
+    total: number;
+    page: number;
+    size: number;
+  }>("audit", `/api/audit?${new URLSearchParams(f)}`, baseData);
+  const d = { ...baseData, audit: result?.audit ?? [] };
   const rows = d.audit.filter(
     (a) =>
       !f.q ||
@@ -15,11 +28,30 @@ export default function AuditLog({ d }: { d: Data }) {
   return (
     <>
       <p>
-        Latest 500 actions. Original values are retained in the database for
-        authorised review.
+        All permitted actions, with server pagination. Original values are
+        retained in the database for authorised review.
       </p>
       <FilterBar search={f.q ?? ""} values={f} onChange={setF} options={[]} />
+      {error && (
+        <p role="alert" className="error">
+          {error} <button onClick={reload}>Retry audit</button>
+        </p>
+      )}
+      {busy && (
+        <p className="inline-progress" role="status">
+          Refreshing audit entries...
+        </p>
+      )}
       <Table
+        server={{
+          total: result?.total ?? 0,
+          page: result?.page ?? 1,
+          size: result?.size ?? 20,
+          onPage: (n) => setF({ ...f, page: String(n) }),
+          onSize: (n) => setF({ ...f, size: String(n), page: "1" }),
+          onSort: () => {},
+          sortableColumns: [],
+        }}
         headers={[
           "Action",
           "Entity",

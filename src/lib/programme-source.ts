@@ -1,3 +1,4 @@
+import { programmeInterestEvidence } from "./programme-interests";
 import type { Programme } from "./types";
 export const sourceCentres: Record<string, string> = {
   SEEN_BB: "SEEN Bukit Batok",
@@ -72,7 +73,52 @@ export function needsReview(p: Suitability) {
     (reviewStatus(p) !== "Reviewed" || suitabilityIssues(p).length),
   );
 }
-export function confirmedOccurrences(
+type Occurrence = NonNullable<Programme["external"]>["occurrences"][number];
+export const actualSchedulingReasons = new Set([
+  "venue_conflict",
+  "centre_closed",
+  "outside_operating_hours",
+  "venue_unavailable",
+  "mirror_schedule_conflict",
+  "long_duration",
+]);
+export const occurrenceReasons = (o: Occurrence) =>
+  Array.isArray(o.reasonCodes) ? o.reasonCodes.map(String) : [];
+export function explicitlyHidden(
+  p: Pick<Programme, "external">,
+  o: Occurrence,
+) {
+  return (
+    o.eligibilityStatus === "hidden" ||
+    occurrenceReasons(o).some((s) => s.startsWith("hidden_")) ||
+    Boolean(
+      (o.visibilityKnown || p.external?.eligibilityRulesVersion === 2) &&
+      (!o.timetableVisible || !o.calendarVisible),
+    )
+  );
+}
+export function occurrenceConflict(o: Occurrence) {
+  const dateInvalid = Boolean(
+    o.date &&
+    (!/^\d{4}-\d{2}-\d{2}$/.test(o.date) ||
+      !Number.isFinite(Date.parse(`${o.date}T00:00:00Z`)) ||
+      new Date(`${o.date}T00:00:00Z`).toISOString().slice(0, 10) !== o.date),
+  );
+  const timeInvalid = Boolean(
+    (o.startTime && !validClock(o.startTime)) ||
+    (o.endTime && !validClock(o.endTime)) ||
+    (o.startTime && o.endTime && o.endTime <= o.startTime),
+  );
+  return (
+    dateInvalid ||
+    timeInvalid ||
+    occurrenceReasons(o).some((code) => actualSchedulingReasons.has(code))
+  );
+}
+function validClock(value: string) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+export function futureOccurrences(
   p: Pick<Programme, "external">,
   now = Date.now(),
 ) {
@@ -81,24 +127,57 @@ export function confirmedOccurrences(
     .filter(
       (o) =>
         !o.missing &&
+        !explicitlyHidden(p, o) &&
+        !["cancelled", "inactive", "closed"].includes(o.status.toLowerCase()) &&
+        !["cancelled", "past", "hidden"].includes(o.eligibilityStatus || "") &&
         o.date &&
-        o.startTime &&
-        o.endTime &&
-        o.venue &&
-        o.recommendationEligible === true &&
-        o.eligibilityStatus === "confirmed_upcoming" &&
-        o.schedulingStatus === "verified" &&
-        o.timetableVisible === true &&
-        o.calendarVisible === true &&
-        ["confirmed", "scheduled", "active"].includes(o.status.toLowerCase()) &&
+        /^\d{4}-\d{2}-\d{2}$/.test(o.date) &&
+        validClock(o.startTime) &&
+        validClock(o.endTime) &&
+        o.endTime > o.startTime &&
+        Number.isFinite(Date.parse(`${o.date}T00:00:00Z`)) &&
+        new Date(`${o.date}T00:00:00Z`).toISOString().slice(0, 10) === o.date &&
         Date.parse(`${o.date}T${o.startTime}:00+08:00`) > now,
     )
     .sort((a, b) =>
       `${a.date} ${a.startTime}`.localeCompare(`${b.date} ${b.startTime}`),
     );
 }
+export function confirmedOccurrences(
+  p: Pick<Programme, "external">,
+  now = Date.now(),
+) {
+  return futureOccurrences(p, now).filter(
+    (o) =>
+      ["confirmed", "scheduled", "active"].includes(o.status.toLowerCase()) &&
+      !["tentative", "incomplete", "unverified"].includes(
+        o.eligibilityStatus || "unverified",
+      ) &&
+      !occurrenceConflict(o) &&
+      Boolean(o.visibilityKnown || p.external?.eligibilityRulesVersion === 2) &&
+      o.timetableVisible === true &&
+      o.calendarVisible === true,
+  );
+}
 export const nextOccurrence = (p: Pick<Programme, "external">, fromDate = "") =>
   confirmedOccurrences(p).find((o) => o.date! >= fromDate);
+export function scheduleLabel(p: Pick<Programme, "external">) {
+  const next = nextOccurrence(p);
+  if (next)
+    return next.schedulingStatus === "verified"
+      ? "Confirmed upcoming"
+      : "Scheduled; source checks incomplete";
+  if (p.external?.missing) return "Missing from source";
+  if (p.external?.occurrences.some((o) => !o.missing && occurrenceConflict(o)))
+    return "Scheduling check required";
+  if (
+    futureOccurrences(p).some(
+      (o) => o.status === "tbc" || o.eligibilityStatus === "tentative",
+    )
+  )
+    return "Tentative schedule";
+  return "Schedule Not Confirmed";
+}
 export function sourceStates(p: Pick<Programme, "external">) {
   if (!p.external) return ["manual"];
   if (p.external.missing) return ["missing"];
@@ -107,12 +186,15 @@ export function sourceStates(p: Pick<Programme, "external">) {
       p.external.occurrences
         .filter((o) => !o.missing)
         .map((o) =>
-          o.date &&
-          Date.parse(`${o.date}T${o.startTime || "00:00"}:00+08:00`) <=
-            Date.now() &&
-          o.eligibilityStatus === "confirmed_upcoming"
-            ? "past"
-            : o.eligibilityStatus || "unverified",
+          explicitlyHidden(p, o)
+            ? "hidden"
+            : o.status === "cancelled"
+              ? "cancelled"
+              : o.date &&
+                  validClock(o.startTime) &&
+                  Date.parse(`${o.date}T${o.startTime}:00+08:00`) <= Date.now()
+                ? "past"
+                : o.eligibilityStatus || "unverified",
         ),
     ),
   ];
@@ -121,21 +203,49 @@ export function sourceStates(p: Pick<Programme, "external">) {
 export function schedulingConcern(p: Pick<Programme, "external">) {
   return Boolean(
     p.external &&
-    (p.external.missing ||
-      p.external.groupingStatus !== "Verified" ||
-      p.external.occurrences.some(
-        (o) =>
-          !o.missing &&
-          ["required", "not_checked"].includes(
-            o.schedulingStatus || "not_checked",
-          ),
-      )),
+    !p.external.missing &&
+    p.external.occurrences.some(
+      (o) => !o.missing && !explicitlyHidden(p, o) && occurrenceConflict(o),
+    ),
   );
 }
 export function recommendationReady(p: Programme) {
+  if (p.status !== "Active") return false;
+  if (!p.external) return true;
+  if (
+    p.external.missing ||
+    ["cancelled", "inactive", "hidden", "closed"].includes(
+      p.external.sourceStatus.toLowerCase(),
+    )
+  )
+    return false;
+  const current = p.external.occurrences.filter((o) => !o.missing);
+  return (
+    !current.length ||
+    current.some(
+      (o) =>
+        !explicitlyHidden(p, o) &&
+        !["cancelled", "inactive", "closed"].includes(o.status.toLowerCase()) &&
+        !["cancelled", "hidden", "past"].includes(o.eligibilityStatus || "") &&
+        (!o.date ||
+          !validClock(o.startTime) ||
+          Date.parse(`${o.date}T${o.startTime}:00+08:00`) > Date.now()),
+    )
+  );
+}
+export function registrationReady(
+  p: Suitability & Pick<Programme, "status" | "registrationStatus">,
+) {
   return (
     p.status === "Active" &&
-    (!p.external || (!needsReview(p) && Boolean(nextOccurrence(p))))
+    p.registrationStatus === "Open" &&
+    (!p.external ||
+      (!needsReview(p) &&
+        confirmedOccurrences(p).some(
+          (o) =>
+            o.recommendationEligible === true &&
+            o.schedulingStatus === "verified",
+        )))
   );
 }
 export function catalogueCounts(programmes: Programme[], fromDate = "") {
@@ -147,6 +257,17 @@ export function catalogueCounts(programmes: Programme[], fromDate = "") {
         n + confirmedOccurrences(p).filter((o) => o.date! >= fromDate).length,
       0,
     ),
+    scheduledProgrammes: programmes.filter(
+      (p) =>
+        p.external &&
+        nextOccurrence(p) &&
+        (!fromDate || confirmedOccurrences(p).some((o) => o.date! >= fromDate)),
+    ).length,
+    unconfirmed: programmes.filter((p) => p.external && !nextOccurrence(p))
+      .length,
+    tagCorrections: programmes.filter(
+      (p) => p.external && programmeInterestEvidence(p).needsCorrection,
+    ).length,
     pending: programmes.filter((p) => reviewStatus(p) === "Pending Review")
       .length,
     inReview: programmes.filter((p) => reviewStatus(p) === "In Review").length,
@@ -180,6 +301,11 @@ export function filterCatalogue(
           f.completeness) &&
       (!f.date || confirmedOccurrences(p).some((o) => o.date! >= f.date)) &&
       (!f.concerns || schedulingConcern(p)) &&
+      (!f.tagCorrections || programmeInterestEvidence(p).needsCorrection) &&
+      (!f.schedule ||
+        (f.schedule === "confirmed"
+          ? Boolean(nextOccurrence(p))
+          : !nextOccurrence(p))) &&
       (!f.ready || recommendationReady(p)) &&
       (!f.status ? p.status !== "Archived" : p.status === f.status),
   );

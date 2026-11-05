@@ -1,3 +1,4 @@
+import {privateHeaders} from "@/lib/permission-key";
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db, programmeInclude } from "@/lib/db";
@@ -93,6 +94,26 @@ export async function GET(req: NextRequest) {
         page,
         size,
         counts: catalogueCounts(metricRows, f.date),
+        diagnostics: {
+          unknownVisibility: metricRows.reduce(
+            (n, p) =>
+              n +
+              (p.external?.occurrences.filter(
+                (o) =>
+                  !o.missing &&
+                  !o.visibilityKnown &&
+                  p.external?.eligibilityRulesVersion !== 2,
+              ).length || 0),
+            0,
+          ),
+          undated: metricRows.reduce(
+            (n, p) =>
+              n +
+              (p.external?.occurrences.filter((o) => !o.missing && !o.date)
+                .length || 0),
+            0,
+          ),
+        },
         centres: [
           {
             id: "",
@@ -122,7 +143,7 @@ export async function GET(req: NextRequest) {
           conditions: conditions.map((v) => v.name),
         },
       },
-      { headers: { "Cache-Control": "private, no-store" } },
+      { headers: privateHeaders(u) },
     );
   } catch (e) {
     return NextResponse.json(

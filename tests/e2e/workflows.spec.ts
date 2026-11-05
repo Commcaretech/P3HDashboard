@@ -175,11 +175,11 @@ test("critical local case-management workflows and server permissions", async ({
   await page
     .getByLabel("Linked care recipient", { exact: true })
     .selectOption({ label: "Fictional Recipient" });
-  await page.getByRole("button", { name: "Find Suitable Programmes" }).click();
-  await expect(page.getByText("100% Match", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Find Recommendations" }).click();
   await expect(
-    page.getByText("Care recipient conditions: Dementia (+35%)"),
+    page.getByText("Suggested by interests", { exact: true }),
   ).toBeVisible();
+  await expect(page.getByText(/Matches recorded interests:/)).toBeVisible();
   await page.getByRole("button", { name: "Register participation" }).click();
   await page
     .getByRole("link", { name: "Grants & Referrals", exact: true })
@@ -1425,7 +1425,7 @@ test("dashboard and follow-up dialogs fit desktop, tablet and phone screens", as
       })
     ).ok(),
   ).toBe(true);
-  for (const width of [1440, 1024, 768, 390, 375]) {
+  for (const width of [1440, 1280, 1024, 768, 390, 375]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/dashboard");
     await expect(
@@ -1443,6 +1443,16 @@ test("dashboard and follow-up dialogs fit desktop, tablet and phone screens", as
       path: `test-results/upgrade-dashboard-${width}.png`,
       fullPage: true,
     });
+    await page.getByText("Management statistics", { exact: true }).click();
+    await expect(
+      page.locator(".chart-grid .recharts-surface").first(),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.getByText("Management statistics", { exact: true }).click();
     const complete = page
       .getByRole("button", { name: "Mark Follow-up Done", exact: true })
       .first();
@@ -1858,4 +1868,498 @@ test("centre catalogue tabs, interactive review queues and persisted suitability
   await expect(
     page.getByRole("tab", { name: "GLOW Bukit Batok", exact: true }),
   ).toBeDisabled();
+});
+
+test("seniors receive unreviewed interest suggestions and staff can correct tags without the review form", async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: "http://127.0.0.1:3100" };
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "fake.admin", password },
+  });
+  const seniorResponse = await context.request.post("/api/action", {
+    headers,
+    data: {
+      action: "person",
+      data: {
+        kind: "Care Recipient",
+        alias: "Senior Interest Suggestion",
+        centre: "SEEN Bukit Batok",
+        interests: "Exercise",
+        mobility: "Assisted",
+        languages: "English",
+      },
+    },
+  });
+  expect(seniorResponse.ok()).toBe(true);
+  const fixture = new PrismaClient({
+    datasourceUrl: `file:${resolve("data/e2e.db").replace(/\\/g, "/")}`,
+  });
+  let id = "";
+  try {
+    const p = await fixture.programme.create({
+      data: {
+        name: "Chair Yoga interest fixture",
+        category: "Physical",
+        centre: "SEEN Bukit Batok",
+        registrationStatus: "Unverified",
+        notes: "Keep source notes",
+        external: {
+          create: {
+            source: "program-spacebooking",
+            sourceKey: `interest-${randomUUID()}`,
+            centreId: "SEEN_BB",
+            sourceStatus: "scheduled",
+            programmeType: "Gentle activity",
+            lastSeenAt: new Date(),
+            lastSyncAt: new Date(),
+            fingerprint: "fixture",
+            occurrences: {
+              create: {
+                sourceKey: "interest-occ",
+                sourceRecordIds: ["classes:interest-fixture"],
+                date: null,
+                venue: "Off-site",
+                status: "scheduled",
+              },
+            },
+          },
+        },
+      },
+    });
+    id = p.id;
+    await fixture.programme.create({
+      data: {
+        name: "Chair Yoga caregivers only",
+        category: "Physical",
+        centre: "SEEN Bukit Batok",
+        registrationStatus: "Unverified",
+        review: { create: { audience: "Caregivers", issues: [] } },
+        external: {
+          create: {
+            source: "program-spacebooking",
+            sourceKey: `caregiver-${randomUUID()}`,
+            centreId: "SEEN_BB",
+            sourceStatus: "scheduled",
+            lastSeenAt: new Date(),
+            lastSyncAt: new Date(),
+            fingerprint: "fixture",
+          },
+        },
+      },
+    });
+  } finally {
+    await fixture.$disconnect();
+  }
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.goto("/matching?centre=SEEN_BB");
+  await page
+    .getByLabel("Care recipient / senior", { exact: true })
+    .selectOption({ label: "Senior Interest Suggestion" });
+  await page
+    .getByRole("button", { name: "Find Recommendations", exact: true })
+    .click();
+  const card = page.locator(".match-card").filter({
+    has: page.getByRole("heading", {
+      name: "Chair Yoga interest fixture",
+      exact: true,
+    }),
+  });
+  await expect(card).toBeVisible();
+  await expect(
+    card.getByText("Suggested by interests", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    card.getByText("Accessibility Not Assessed", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    card.getByText("Schedule Not Confirmed", { exact: true }).first(),
+  ).toBeVisible();
+  await expect(
+    card.getByText(/Matches recorded interests: Exercise/),
+  ).toBeVisible();
+  await expect(
+    card.getByRole("button", { name: "Register participation", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("heading", {
+      name: "Chair Yoga caregivers only",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await page.screenshot({
+    path: "test-results/senior-interest-suggestions-tablet.png",
+    fullPage: true,
+  });
+  await card.getByRole("link", { name: "View Programme", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Edit interest tags", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText(/Source domain:/)).toBeVisible();
+  await dialog.getByLabel("Interest tags", { exact: true }).fill("Gardening");
+  await dialog
+    .getByRole("button", { name: "Save interest tags", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  const rows = await (
+    await context.request.get(
+      "/api/programmes/catalogue?centre=SEEN_BB&q=Chair%20Yoga%20interest%20fixture",
+    )
+  ).json();
+  const changed = rows.rows[0];
+  expect(changed.id).toBe(id);
+  expect(changed.category).toBe("Physical");
+  expect(changed.notes).toBe("Keep source notes");
+  expect(changed.interestTagsReviewed).toBe(true);
+  expect(
+    changed.interests.map(
+      (x: { interest: { name: string } }) => x.interest.name,
+    ),
+  ).toEqual(["Gardening"]);
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "sync.restricted", password },
+  });
+  expect(
+    (
+      await context.request.post(`/api/programmes/${id}/interests`, {
+        headers,
+        data: { version: changed.updatedAt, tags: ["Exercise"] },
+      })
+    ).status(),
+  ).toBe(403);
+});
+
+test("persistent shell, cached navigation, slow/error recovery, deep links and session expiry", async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: "http://127.0.0.1:3100" };
+  expect(
+    (
+      await context.request.post("/api/auth", {
+        headers,
+        data: { action: "login", username: "fake.admin", password },
+      })
+    ).ok(),
+  ).toBe(true);
+  await page.goto("/dashboard");
+  await expect(
+    page.getByRole("heading", { name: "My Tasks Today", exact: true }),
+  ).toBeVisible();
+  await page
+    .locator(".sidebar")
+    .evaluate((el) =>
+      el.setAttribute("data-persistence-marker", "same-sidebar"),
+    );
+  await page
+    .locator(".topbar")
+    .evaluate((el) =>
+      el.setAttribute("data-persistence-marker", "same-header"),
+    );
+  const authRequests: string[] = [];
+  page.on("request", (r) => {
+    if (new URL(r.url()).pathname === "/api/auth") authRequests.push(r.url());
+  });
+  for (const [name, title] of [
+    ["Caregivers", "Caregivers"],
+    ["Care Recipients", "Care Recipients"],
+    ["Grants & Referrals", "Grants & Referrals"],
+    ["My Tasks", "My Tasks"],
+    ["Dashboard", "P3H Dashboard"],
+    ["Reports", "Reports"],
+    ["Settings", "Settings"],
+    ["Caregivers", "Caregivers"],
+  ]) {
+    await page
+      .locator(".sidebar")
+      .getByRole("link", { name, exact: true })
+      .click();
+    await expect(page.locator("main h1")).toHaveText(title);
+    await expect(page.locator(".sidebar")).toHaveAttribute(
+      "data-persistence-marker",
+      "same-sidebar",
+    );
+    await expect(page.locator(".topbar")).toHaveAttribute(
+      "data-persistence-marker",
+      "same-header",
+    );
+    await expect(page.getByText("Loading P3H...", { exact: true })).toHaveCount(
+      0,
+    );
+  }
+  expect(authRequests).toEqual([]);
+  await page.goBack();
+  await expect(page.locator("main h1")).toHaveText("Settings");
+  await page.goForward();
+  await expect(page.locator("main h1")).toHaveText("Caregivers");
+  let release!: () => void;
+  const slow = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/data?section=audit&*", async (route) => {
+    await slow;
+    await route.continue();
+  });
+  await page
+    .locator(".sidebar")
+    .getByRole("link", { name: "Audit Log", exact: true })
+    .click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Opening Audit Log" }),
+  ).toBeVisible();
+  await expect(page.locator("main h1")).toHaveText("Caregivers");
+  await expect(page.locator(".topbar")).toBeVisible();
+  release();
+  await expect(page.locator("main h1")).toHaveText("Audit Log");
+  await page.unroute("**/api/data?section=audit&*");
+  let fail = true;
+  await page.route("**/api/data?section=matching&*", (route) =>
+    fail
+      ? route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Fictional unavailable service" }),
+        })
+      : route.continue(),
+  );
+  await page
+    .locator(".sidebar")
+    .getByRole("link", { name: "Programme Matching", exact: true })
+    .click();
+  await expect(
+    page
+      .getByRole("alert")
+      .filter({ hasText: "Fictional unavailable service" }),
+  ).toBeVisible();
+  await expect(page.locator(".topbar")).toHaveAttribute(
+    "data-persistence-marker",
+    "same-header",
+  );
+  fail = false;
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(page.locator("main h1")).toHaveText("Programme Matching");
+  // Expire the actual server session, then verify a cached destination before publishing it.
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "logout" },
+  });
+  await page
+    .locator(".sidebar")
+    .getByRole("link", { name: "Caregivers", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Welcome back", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".sidebar")).toHaveCount(0);
+  await expect(page.locator(".people-directory")).toHaveCount(0);
+  await page.getByLabel("Username", { exact: true }).fill("fake.admin");
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.locator("main h1")).toHaveText("Caregivers");
+  const data = await (
+    await context.request.get("/api/people?kind=Member&size=20")
+  ).json();
+  const person = data.people[0];
+  await page.goto(`/people/${person.id}`);
+  await expect(
+    page.getByRole("heading", {
+      name: person.name || person.alias || person.memberId,
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole("heading", {
+      name: person.name || person.alias || person.memberId,
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.goto("/people/missing-fictional-person");
+  await expect(
+    page.getByText("Record not found", { exact: false }),
+  ).toBeVisible();
+  // Expected 503 and 401 are deliberate reliability probes, not unexplained console failures.
+  browserIssues.set(
+    page,
+    (browserIssues.get(page) ?? []).filter(
+      (v) => /Failed to load resource.*(503|401)/.test(v) === false,
+    ),
+  );
+});
+
+test("permission changes discard cached centre records and all new endpoints enforce scope", async ({
+  page,
+  context,
+  playwright,
+}) => {
+  const headers = { Origin: "http://127.0.0.1:3100" };
+  const admin = await playwright.request.newContext({
+    baseURL: "http://127.0.0.1:3100",
+  });
+  await admin.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "fake.admin", password },
+  });
+  const all = await (await admin.get("/api/data")).json();
+  const manager = all.staff.find(
+    (s: { username: string }) => s.username === "scoped.manager",
+  );
+  const a = await admin.post("/api/action", {
+    headers,
+    data: {
+      action: "person",
+      data: {
+        kind: "Member",
+        memberId: "CACHE-CENTRE-A",
+        name: "Fictional Cache Centre A",
+        centre: "Centre A",
+      },
+    },
+  });
+  const b = await admin.post("/api/action", {
+    headers,
+    data: {
+      action: "person",
+      data: {
+        kind: "Member",
+        memberId: "CACHE-CENTRE-B",
+        name: "Fictional Cache Centre B",
+        centre: "Centre B",
+      },
+    },
+  });
+  expect(a.ok() && b.ok()).toBe(true);
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "scoped.manager", password },
+  });
+  await page.goto("/members?q=CACHE-CENTRE");
+  await expect(
+    page.getByRole("link", { name: /Fictional Cache Centre A/ }).first(),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: /Fictional Cache Centre B/ }),
+  ).toHaveCount(0);
+  for (const path of [
+    "/api/grants",
+    "/api/tasks",
+    "/api/dashboard/birthdays",
+    "/api/reports?view=caseload",
+    "/api/audit",
+    "/api/data?section=people&id=" +
+      all.people.find(
+        (p: { memberId: string }) => p.memberId === "OUTSIDE-FAKE",
+      ).id,
+  ]) {
+    const r = await context.request.get(path);
+    expect(r.ok()).toBe(true);
+    expect(await r.text()).not.toContain("OUTSIDE-FAKE");
+    expect(r.headers()["cache-control"]).toContain("no-store");
+  }
+  await page
+    .locator(".sidebar")
+    .getByRole("link", { name: "Reports", exact: true })
+    .click();
+  await expect(page.locator("main h1")).toHaveText("Reports");
+  expect(
+    (
+      await admin.post("/api/action", {
+        headers,
+        data: {
+          action: "userAccess",
+          id: manager.id,
+          data: { allCentres: "Selected centres", centres: "Centre B" },
+        },
+      })
+    ).ok(),
+  ).toBe(true);
+  await page
+    .locator(".sidebar")
+    .getByRole("link", { name: "Caregivers", exact: true })
+    .click();
+  await page.locator("main .people-directory").waitFor();
+  await page.getByLabel("Search records", { exact: true }).fill("CACHE-CENTRE");
+  await expect(
+    page.getByRole("link", { name: /Fictional Cache Centre B/ }).first(),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: /Fictional Cache Centre A/ }),
+  ).toHaveCount(0);
+  expect(
+    (
+      await admin.post("/api/action", {
+        headers,
+        data: {
+          action: "userAccess",
+          id: manager.id,
+          data: { allCentres: "Selected centres", centres: "Centre A" },
+        },
+      })
+    ).ok(),
+  ).toBe(true);
+  await admin.dispose();
+});
+
+test("shared pages fit six widths and mobile navigation supports keyboard and reduced motion", async ({
+  page,
+  context,
+}) => {
+  await context.request.post("/api/auth", {
+    headers: { Origin: "http://127.0.0.1:3100" },
+    data: { action: "login", username: "fake.admin", password },
+  });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  for (const width of [1440, 1280, 1024, 768, 390, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const path of ["members", "grants", "reports", "settings"]) {
+      await page.goto(`/${path}`);
+      await page.locator("main h1").waitFor();
+      await page.waitForFunction(
+        () =>
+          !document.querySelector("main .skeleton,main .inline-progress") &&
+          document.querySelector("main")?.getAttribute("aria-busy") !== "true",
+      );
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+        `${path} at ${width}px`,
+      ).toBe(true);
+      if (width === 375 && ["members", "grants"].includes(path))
+        await page.screenshot({
+          path: `test-results/workspace-${path}-${width}.png`,
+          fullPage: true,
+        });
+    }
+  }
+  const menu = page.getByRole("button", {
+    name: "Toggle navigation",
+    exact: true,
+  });
+  await menu.focus();
+  await page.keyboard.press("Enter");
+  await expect(menu).toHaveAttribute("aria-expanded", "true");
+  expect(
+    await page
+      .locator(".sidebar")
+      .evaluate((el) => el.contains(document.activeElement)),
+  ).toBe(true);
+  for (let i = 0; i < 20; i++) await page.keyboard.press("Tab");
+  expect(
+    await page
+      .locator(".sidebar")
+      .evaluate((el) => el.contains(document.activeElement)),
+  ).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveAttribute("aria-expanded", "false");
+  await expect(menu).toBeFocused();
+  expect(
+    await page
+      .locator(".page-head")
+      .evaluate((el) => getComputedStyle(el).animationName),
+  ).toBe("none");
 });

@@ -1,4 +1,5 @@
 "use client";
+import {apiFetch} from "@/lib/client-http";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -25,12 +26,13 @@ export default function GlobalSearch() {
         return;
       }
       try {
-        const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`, {
+        const r = await apiFetch(`/api/search?q=${encodeURIComponent(q)}`, {
           cache: "no-store",
           signal: controller.signal,
         });
         if (!r.ok) throw new Error();
         const j = await r.json();
+        if(controller.signal.aborted)return;
         setResults(j.results);
         setError("");
       } catch (e) {
@@ -49,7 +51,7 @@ export default function GlobalSearch() {
     <form
       className="global-search"
       action="/search"
-      onSubmit={() => setOpen(false)}
+      onSubmit={e=>{e.preventDefault();router.push(`/search?q=${encodeURIComponent(q)}`);setOpen(false);}}
     >
       <Search size={18} />
       <input

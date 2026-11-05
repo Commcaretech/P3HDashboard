@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import {
   BarChart,
   Bar,
@@ -21,7 +22,7 @@ export function Chart({
   return (
     <section className="panel">
       <h2>
-        <a href={href}>{title}</a>
+        <Link href={href}>{title}</Link>
       </h2>
       {values.length ? (
         <div style={{ height: 230 }}>

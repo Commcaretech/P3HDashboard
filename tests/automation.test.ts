@@ -546,3 +546,67 @@ test("changed application dates preserve legacy completed reminders while moving
   assert.equal(moved.dueDate.toISOString().slice(0, 10), oldDate);
   assert.equal(await db.followUp.count({ where: { grantId: grant.id } }), 0);
 });
+
+test("page-specific payloads exclude unrelated records and enforce centre scope", async () => {
+  const { workspaceData } = await import("../src/lib/workspace-data");
+  const outside = await db.person.create({
+    data: {
+      kind: "Member",
+      memberId: "PRIVATE-OUTSIDE",
+      name: "Outside private profile",
+      centre: "Centre B",
+      remarks: "Never expose this note",
+      rawImport: "private source",
+    },
+  });
+  const scoped = { ...u, role: "Manager" };
+  const directory = await workspaceData(scoped, "members", "");
+  assert.deepEqual(directory.people, []);
+  const selected = await workspaceData(scoped, "people", p.id);
+  assert.deepEqual(
+    selected.people.map((v) => v.id),
+    [p.id],
+  );
+  assert.equal(
+    JSON.stringify(selected).includes("Never expose this note"),
+    false,
+  );
+  const denied = await workspaceData(scoped, "people", outside.id);
+  assert.deepEqual(denied.people, []);
+  const settings = await workspaceData(scoped, "settings", "");
+  assert.deepEqual(settings.people, []);
+  assert.deepEqual(settings.grants, []);
+  assert.equal(JSON.stringify(settings).includes("passwordHash"), false);
+});
+test("daily in-app reminder fallback checkpoints once without sending emails", async () => {
+  const { maintainReminders } = await import("../src/lib/reminder-maintenance");
+  const count = await db.notificationDelivery.count();
+  assert.deepEqual(await maintainReminders(), { changed: true });
+  const alerts = await db.alert.count();
+  assert.deepEqual(await maintainReminders(), { changed: false });
+  assert.equal(await db.alert.count(), alerts);
+  assert.equal(await db.notificationDelivery.count(), count);
+});
+
+test("targeted reminder reconciliation preserves another person's outstanding reminders", async () => {
+  const { reconcileAlerts } = await import("../src/lib/alerts");
+  const other = await db.person.create({
+    data: {
+      kind: "Member",
+      memberId: "SCOPED-OTHER",
+      name: "Other reminder owner",
+      centre: "Centre A",
+      dob: new Date(`1948-${date.slice(5)}`),
+    },
+  });
+  await refreshAlerts();
+  const reminder = await db.alert.findFirstOrThrow({
+    where: { personId: other.id, type: "Birthday", status: "Pending" },
+  });
+  await db.$transaction((tx) => reconcileAlerts(tx, { personIds: [p.id] }));
+  const untouched = await db.alert.findUniqueOrThrow({
+    where: { id: reminder.id },
+  });
+  assert.equal(untouched.status, "Pending");
+  assert.equal(untouched.sourceKey, reminder.sourceKey);
+});

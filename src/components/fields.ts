@@ -14,7 +14,7 @@ export function personFields(kind: string): Field[] {
     {
       key: "contactNumber",
       label: "Contact number (optional)",
-      section: "Overview",
+      section: "Contact Details",
     },
     { key: "alias", label: "Alias", section: "Overview" },
     { key: "dob", label: "Date of birth", type: "date", section: "Overview" },
@@ -38,7 +38,7 @@ export function personFields(kind: string): Field[] {
     {
       key: "preferredLanguage",
       label: "Preferred language",
-      section: "Overview",
+      section: "Contact Details",
     },
     {
       key: "spokenLanguages",

@@ -1,22 +1,27 @@
 "use client";
+import { apiFetch } from "@/lib/client-http";
+import { useWorkspaceCache } from "./workspace-cache";
 import { useEffect, useState } from "react";
 import { Data, Person, label } from "@/lib/types";
 import { Table, Badge, PersonLink, ActionMenu } from "./ui";
-import { useFilters, FilterBar, names } from "./common";
+import { useFilters, FilterBar, names, request } from "./common";
 export default function People({
   d,
   kind,
   write,
   onEdit,
   onArchive,
+  revision = 0,
 }: {
   d: Data;
+  revision?: number;
   kind: string;
   write: boolean;
   onEdit: (p?: Person, kind?: string) => void;
   onArchive: (p: Person) => void;
 }) {
   const [f, setF] = useFilters();
+  const cache = useWorkspaceCache();
   const [result, setResult] = useState<{
       people: (Person & { alerts: Data["alerts"] })[];
       total: number;
@@ -27,36 +32,60 @@ export default function People({
   const query = new URLSearchParams({ ...f, kind }).toString();
   useEffect(() => {
     const controller = new AbortController();
-    const timer = setTimeout(async () => {
-      setBusy(true);
-      try {
-        const response = await fetch(`/api/people?${query}`, {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        const json = await response.json();
-        if (!response.ok) throw new Error(json.error);
-        setResult(json);
-        setError("");
-      } catch (e) {
-        if (!(e instanceof DOMException && e.name === "AbortError"))
-          setError(e instanceof Error ? e.message : "Unable to load records.");
-      } finally {
-        if (!controller.signal.aborted) setBusy(false);
-      }
-    }, 150);
+    const timer = setTimeout(
+      async () => {
+        setBusy(true);
+        try {
+          const load = async () => {
+            const response = await apiFetch(`/api/people?${query}`, {
+              cache: "no-store",
+              signal: cache ? undefined : controller.signal,
+            });
+            const json = await response.json();
+            if (!response.ok) throw new Error(json.error);
+            return json;
+          };
+          if (cache?.get(`resource:people:${query}`))
+            await cache.fetch(
+              "permission-check",
+              () => request("/api/data?section=access"),
+              true,
+              0,
+            );
+          const json = cache
+            ? await cache.fetch(`resource:people:${query}`, load)
+            : await load();
+          if (controller.signal.aborted) return;
+          setResult(json);
+          setError("");
+        } catch (e) {
+          if (!(e instanceof DOMException && e.name === "AbortError"))
+            setError(
+              e instanceof Error ? e.message : "Unable to load records.",
+            );
+        } finally {
+          if (!controller.signal.aborted) setBusy(false);
+        }
+      },
+      f.q ? 180 : 0,
+    );
     return () => {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [query, d]);
+  }, [query, revision, cache, f.q]);
   const people = result.people,
     filtered = people;
   const change = (v: Record<string, string>) => setF({ ...v, page: "1" });
   return (
-    <>
+    <div className="people-directory">
       <div className="section-head">
         <p>
+          <strong>
+            {result.total}{" "}
+            {kind === "Member" ? "caregivers" : "care recipients"}
+          </strong>
+          {" · "}
           {kind === "Member"
             ? "Caregiver and member records"
             : "Separate profiles linked to caregivers"}
@@ -154,7 +183,7 @@ export default function People({
         }}
         headers={[
           "Member / Person",
-          "P3H ID",
+          "Contact / P3H ID",
           "Centre",
           "Care relationship",
           "Preferred language",
@@ -172,15 +201,33 @@ export default function People({
               {label(p)}
               <small>{p.kind === "Member" ? p.memberId : p.alias}</small>
             </PersonLink>,
-            p.memberId || "Not applicable",
+            <div key="contact">
+              {p.contactNumber ? (
+                <a href={`tel:${p.contactNumber}`}>{p.contactNumber}</a>
+              ) : (
+                "Contact not recorded"
+              )}
+              <small>{p.memberId || "No P3H ID"}</small>
+            </div>,
             p.centre || "—",
             (p.kind === "Member" ? p.caregiverLinks : p.recipientLinks)
-              .map((l) => l.relationship)
+              .map(
+                (l) =>
+                  `${l.recipient ? label(l.recipient) : l.member ? label(l.member) : "Linked profile"} / ${l.relationship}`,
+              )
               .join(", ") || "Not linked",
             p.preferredLanguage ||
               names(p).languages.join(", ") ||
               "Not recorded",
-            names(p).conditions.join(", ") || "—",
+            [
+              ...new Set([
+                ...names(p).conditions,
+                ...p.caregiverLinks.flatMap(
+                  (l) =>
+                    l.recipient?.conditions?.map((c) => c.condition.name) ?? [],
+                ),
+              ]),
+            ].join(", ") || "—",
             <Badge key="status">{p.status}</Badge>,
             p.assigned?.name ?? "Unassigned",
             p.alerts
@@ -214,6 +261,6 @@ export default function People({
           ],
         }))}
       />
-    </>
+    </div>
   );
 }

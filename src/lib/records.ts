@@ -369,3 +369,44 @@ export async function saveProgramme(
   );
   return p;
 }
+
+export async function saveProgrammeInterestTags(
+  tx: Tx,
+  userId: string,
+  id: string,
+  tags: string[],
+  version: string,
+) {
+  const p = await tx.programme.findUniqueOrThrow({
+    where: { id },
+    include: { interests: { include: { interest: true } } },
+  });
+  const updatedAt = new Date(Math.max(Date.now(), p.updatedAt.getTime() + 1));
+  const claim = await tx.programme.updateMany({
+    where: { id, updatedAt: new Date(version) },
+    data: { interestTagsReviewed: true, updatedAt },
+  });
+  if (claim.count !== 1)
+    throw new Error(
+      "Another staff member changed this programme. Reload before saving.",
+    );
+  const values = categories(tags.join(", "));
+  await tx.programmeInterest.deleteMany({ where: { programmeId: id } });
+  for (const interestId of await vocabulary(tx, "interest", values))
+    await tx.programmeInterest.create({
+      data: { programmeId: id, interestId },
+    });
+  await audit(
+    tx,
+    userId,
+    "Programme interest tags corrected",
+    "Programme",
+    id,
+    {
+      interests: p.interests.map((x) => x.interest.name),
+      interestTagsReviewed: p.interestTagsReviewed,
+    },
+    { interests: values, interestTagsReviewed: true },
+  );
+  return tx.programme.findUniqueOrThrow({ where: { id } });
+}

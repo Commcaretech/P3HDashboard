@@ -101,6 +101,6 @@ export async function completeFollowUp(
     null,
     history,
   );
-  await reconcileAlerts(tx);
+  await reconcileAlerts(tx, { grantIds: [g.id] });
   return history;
 }

@@ -137,3 +137,11 @@ See [programme sync setup](programme-sync-setup.md) for server variables, centre
 ## Programme catalogue and review upgrade
 
 Follow [Programme Catalogue and suitability reviews](programme-catalogue-review.md) for additive migration `202611040002_programme_review`, source eligibility metadata, the review queues and validation/deployment steps. Existing cloud build/start commands apply the cloud migration. Run one manual Sync Now with the updated source feed before relying on imported recommendations.
+
+## Interest-based programme suggestions
+
+See [simpler import and senior suggestions](interest-based-programmes.md) for additive migration `202611040003_interest_suggestions`, the read-only scheduling diagnostic and the deployment checks. Keep the existing server-only feed variables; cloud:start applies the migration. Verify updated source visibility metadata with a manual Sync Now rather than assuming missing flags mean visible.
+
+## Persistent staff workspace
+
+See [workspace performance and validation](workspace-performance.md) for navigation caching, page-specific APIs, measured results and additive migration `202611040004_workspace_maintenance`. Preserve the existing scheduled notification job. The daily in-app fallback does not send email. Apply the migration before starting the new application build.

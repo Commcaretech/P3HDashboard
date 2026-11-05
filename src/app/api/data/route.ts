@@ -8,16 +8,36 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, personInclude, programmeInclude } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { dashboardData } from "@/lib/dashboard";
+import { workspaceData } from "@/lib/workspace-data";
+import { permissionKey, privateHeaders } from "@/lib/permission-key";
 import { can } from "@/lib/domain";
 
 export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   try {
     const u = await requireUser();
-    if (req.nextUrl.searchParams.get("section") === "dashboard")
+    const section = req.nextUrl.searchParams.get("section") || "";
+    if (section === "access")
+      return NextResponse.json(
+        {
+          accessKey: permissionKey(u),
+          user: { id: u.id, name: u.name, role: u.role },
+        },
+        { headers: privateHeaders(u) },
+      );
+    if (section === "dashboard")
       return NextResponse.json(await dashboardData(u), {
-        headers: { "Cache-Control": "private, no-store" },
+        headers: privateHeaders(u),
       });
+    if (section)
+      return NextResponse.json(
+        await workspaceData(
+          u,
+          section,
+          req.nextUrl.searchParams.get("id") || "",
+        ),
+        { headers: privateHeaders(u) },
+      );
     const tableOnly = ["members", "care-recipients"].includes(
       req.nextUrl.searchParams.get("section") ?? "",
     );
@@ -40,7 +60,7 @@ export async function GET(req: NextRequest) {
               },
               orderBy: { updatedAt: "desc" },
             }),
-        tableOnly || req.nextUrl.searchParams.get("section")==="programmes"
+        tableOnly || req.nextUrl.searchParams.get("section") === "programmes"
           ? Promise.resolve([])
           : db.programme.findMany({
               where: programmeScope(u),

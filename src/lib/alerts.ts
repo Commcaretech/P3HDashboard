@@ -21,11 +21,15 @@ export function birthdayPlans(
     },
   ];
 }
-export async function reconcileAlerts(tx: Prisma.TransactionClient) {
+export async function reconcileAlerts(
+  tx: Prisma.TransactionClient,
+  scope?: { personIds?: string[]; grantIds?: string[] },
+) {
   const now = today();
   const keys: string[] = [];
   const people = await tx.person.findMany({
     where: {
+      ...(scope ? { id: { in: scope.personIds ?? [] } } : {}),
       status: "Active",
       dob: { not: null },
       OR: [{ kind: "Member" }, { assigned: { recipientBirthdays: true } }],
@@ -74,7 +78,20 @@ export async function reconcileAlerts(tx: Prisma.TransactionClient) {
     }
   }
   const grants = await tx.grantApplication.findMany({
-    include: { scheme: true, person: true },
+    ...(scope
+      ? {
+          where: {
+            OR: [
+              { id: { in: scope.grantIds ?? [] } },
+              { personId: { in: scope.personIds ?? [] } },
+            ],
+          },
+        }
+      : {}),
+    include: {
+      scheme: true,
+      person: { select: { id: true, status: true, assignedId: true } },
+    },
   });
   for (const g of grants) {
     if (g.person.status !== "Active") continue;
@@ -158,6 +175,18 @@ export async function reconcileAlerts(tx: Prisma.TransactionClient) {
   }
   await tx.alert.updateMany({
     where: {
+      ...(scope
+        ? {
+            AND: [
+              {
+                OR: [
+                  { personId: { in: scope.personIds ?? [] } },
+                  { grantId: { in: scope.grantIds ?? [] } },
+                ],
+              },
+            ],
+          }
+        : {}),
       status: "Pending",
       sourceKey: { not: null, notIn: keys },
       OR: [

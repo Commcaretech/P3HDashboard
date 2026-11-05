@@ -51,6 +51,11 @@ export default function Profile({
       <div className="profile-head panel">
         <div>
           <h2>{label(p)}</h2>
+          {p.contactNumber && (
+            <a className="profile-contact" href={`tel:${p.contactNumber}`}>
+              {p.contactNumber}
+            </a>
+          )}
           <p>
             {p.kind} · {p.memberId ?? p.alias} · <Badge>{p.status}</Badge>
           </p>
@@ -73,7 +78,20 @@ export default function Profile({
           <strong>{p.assigned?.name ?? "Unassigned"}</strong>
           <small>{p.primaryCondition || names(p).conditions.join(", ")}</small>
         </div>
-        {write && <button onClick={() => onEdit(p)}>Edit profile</button>}
+        {write && (
+          <div className="row-actions">
+            <button onClick={() => onEdit(p)}>Edit profile</button>
+            <button
+              className="secondary"
+              onClick={() => grant(undefined, p.id)}
+            >
+              Add Grant/Referral
+            </button>
+            <button className="secondary" onClick={() => alert(p.id)}>
+              Set reminder
+            </button>
+          </div>
+        )}
       </div>
       <section className="panel relationship-summary">
         <small>
@@ -142,14 +160,14 @@ export default function Profile({
       <div className="tabs">
         {[
           "Overview",
+          "Care Relationships",
+          "Grants & Referrals",
+          "Follow-up History",
+          "Notes",
           "Health",
           "Interests",
-          "Care Relationships",
           "Programmes",
-          "Grants & Referrals",
           "Alerts",
-          "Notes",
-          "Follow-up History",
           "History",
         ].map((t) => (
           <button

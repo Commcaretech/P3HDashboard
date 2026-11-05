@@ -1,14 +1,2 @@
-import DashboardApp from "@/components/app";
-export default async function Page({
-  params,
-}: {
-  params: Promise<{ section?: string[] }>;
-}) {
-  const { section } = await params;
-  return (
-    <DashboardApp
-      section={section?.[0] ?? "dashboard"}
-      recordId={section?.[1]}
-    />
-  );
-}
+// The authenticated workspace lives in the persistent root layout.
+export default function Page(){return null;}

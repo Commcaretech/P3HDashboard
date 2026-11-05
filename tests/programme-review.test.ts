@@ -323,7 +323,10 @@ test("source classifications, excluded-only pages, unknown legacy eligibility an
       confirmedOccurrences(p).length,
       state === "confirmed_upcoming" ? 1 : 0,
     );
-    assert.equal(recommendationReady(json<Programme>(p)), false);
+    assert.equal(
+      recommendationReady(json<Programme>(p)),
+      !["cancelled", "past", "hidden"].includes(state),
+    );
   }
   assert.equal((await get(manual.id)).notes, "Manual stays");
   const person = {
@@ -447,8 +450,7 @@ test("additive review migration rechecks only imported legacy approvals without 
   const copy = new DatabaseSync(":memory:");
   for (const folder of readdirSync("prisma/migrations")
     .filter(
-      (name) =>
-        name.startsWith("20") && name !== "202611040002_programme_review",
+      (name) => name.startsWith("20") && name < "202611040002_programme_review",
     )
     .sort())
     copy.exec(
@@ -533,4 +535,101 @@ test("two reviewers cannot overwrite the same programme revision", async () => {
       saved.review!.staffNotes,
     ),
   );
+});
+
+test("staff interest corrections and empty overrides persist across sync without changing source domain or reviews", async () => {
+  const { saveProgrammeInterestTags } = await import("../src/lib/records");
+  const { programmeInterestEvidence } =
+    await import("../src/lib/programme-interests");
+  const admin = await actor(),
+    source = programme("staff-tags");
+  await syncProgrammes(admin, db, feed([source]));
+  let p = await db.programme.findFirstOrThrow({
+    where: { external: { sourceKey: source.sourceProgrammeKey } },
+    include: programmeInclude,
+  });
+  await db.$transaction((tx) => saveProgrammeReview(tx, admin, p.id, input(p)));
+  p = await get(p.id);
+  const reviewedAt = p.review?.reviewedAt?.toISOString();
+  await db.$transaction((tx) =>
+    saveProgrammeInterestTags(
+      tx,
+      admin.id,
+      p.id,
+      ["Gardening"],
+      p.updatedAt.toISOString(),
+    ),
+  );
+  p = await get(p.id);
+  assert.deepEqual(programmeInterestEvidence(p).tags, ["Gardening"]);
+  assert.equal(p.review?.status, "Reviewed");
+  assert.equal(p.review?.reviewedAt?.toISOString(), reviewedAt);
+  assert.equal(p.languages[0].language.name, "English");
+  assert.equal(p.notes, "Keep staff notes");
+  const status = p.review?.status;
+  await syncProgrammes(admin, db, feed([source]));
+  p = await get(p.id);
+  assert.equal(p.category, "Physical");
+  assert.equal(p.review?.status, status);
+  assert.deepEqual(programmeInterestEvidence(p).tags, ["Gardening"]);
+  await db.$transaction((tx) =>
+    saveProgrammeInterestTags(
+      tx,
+      admin.id,
+      p.id,
+      [],
+      p.updatedAt.toISOString(),
+    ),
+  );
+  p = await get(p.id);
+  await syncProgrammes(admin, db, feed([source]));
+  p = await get(p.id);
+  assert.equal(p.interestTagsReviewed, true);
+  assert.deepEqual(programmeInterestEvidence(p).tags, []);
+});
+
+test("a legacy feed cannot erase previously explicit hidden visibility", async () => {
+  const { recommendationReady } = await import("../src/lib/programme-source");
+  const admin = await actor(),
+    value = programme("preserve-hidden");
+  value.occurrences[0].eligibility = eligibility("hidden");
+  value.occurrences[0].sourceVisibility = {
+    timetableVisible: false,
+    calendarVisible: false,
+  };
+  await syncProgrammes(admin, db, feed([value]));
+  const legacy = JSON.parse(JSON.stringify(value));
+  delete legacy.occurrences[0].sourceVisibility;
+  delete legacy.occurrences[0].eligibility;
+  await syncProgrammes(admin, db, async () =>
+    Response.json({
+      version: 1,
+      source: "program-spacebooking",
+      generatedAt: new Date().toISOString(),
+      items: [legacy],
+      page: { hasMore: false, nextCursor: null },
+    }),
+  );
+  const p = await db.programme.findFirstOrThrow({
+    where: { external: { sourceKey: value.sourceProgrammeKey } },
+    include: programmeInclude,
+  });
+  assert.equal(p.external?.occurrences[0].visibilityKnown, true);
+  assert.equal(p.external?.occurrences[0].calendarVisible, false);
+  assert.equal(recommendationReady(json<Programme>(p)), false);
+});
+
+test("an identifiable programme can import without occurrences or a confirmed schedule", async () => {
+  const admin = await actor(),
+    value = programme("no-occurrences");
+  value.occurrences = [];
+  const r = await syncProgrammes(admin, db, feed([value]));
+  assert.equal(r.created, 1);
+  const p = await db.programme.findFirstOrThrow({
+    where: { external: { sourceKey: value.sourceProgrammeKey } },
+    include: programmeInclude,
+  });
+  assert.equal(p.external?.occurrences.length, 0);
+  assert.equal(recommendationReady(json<Programme>(p)), true);
+  assert.equal(p.registrationStatus, "Unverified");
 });

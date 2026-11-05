@@ -14,7 +14,7 @@ import { db } from "@/lib/db";
 import { savePerson, saveProgramme, audit } from "@/lib/records";
 import { grantSchema, roles, parseDate, today } from "@/lib/domain";
 import { reconcileAlerts, refreshAlerts } from "@/lib/alerts";
-import { needsReview, nextOccurrence } from "@/lib/programme-source";
+import { needsReview, registrationReady } from "@/lib/programme-source";
 import { mobilityCompatible } from "@/lib/matching";
 import { calculateFollowUp, closedGrant } from "@/lib/follow-up";
 import { completeFollowUp } from "@/lib/follow-up-service";
@@ -633,7 +633,7 @@ export async function POST(req: NextRequest) {
                   condition: { name: "" },
                 })),
               }) ||
-                !nextOccurrence(p))
+                !registrationReady(p))
             )
               throw new Error(
                 "Imported programme requires suitability review and a confirmed upcoming session.",
@@ -773,7 +773,11 @@ export async function POST(req: NextRequest) {
           throw new Error("Unsupported action");
         };
         const saved = await mutate();
-        await reconcileAlerts(tx);
+        const recordId=saved&&typeof saved==="object"&&"id" in saved?String(saved.id):b.id;
+        if(b.action==="person"&&recordId)await reconcileAlerts(tx,{personIds:[recordId]});
+        else if(b.action==="grant"&&recordId)await reconcileAlerts(tx,{grantIds:[recordId]});
+        else if(b.action==="archive"&&b.data.type==="person"&&b.id)await reconcileAlerts(tx,{personIds:[b.id]});
+        else if(b.action==="staffSettings"&&b.id){const people=await tx.person.findMany({where:{assignedId:b.id},select:{id:true}});await reconcileAlerts(tx,{personIds:people.map(p=>p.id)});}
         return saved;
       },
       { timeout: 60000 },

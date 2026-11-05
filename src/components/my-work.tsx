@@ -1,13 +1,12 @@
 "use client";
-import { FollowUpDialog } from "./follow-up-dialog";
 import { useState } from "react";
-import { Alert } from "@/lib/types";
-import { closedGrant } from "@/lib/follow-up";
 import Link from "next/link";
-import { Data, label, day } from "@/lib/types";
+import { Data, Alert, label, day } from "@/lib/types";
+import { Table, PersonLink, Badge } from "./ui";
+import { useFilters } from "./common";
+import { useResource } from "./use-resource";
+import { FollowUpDialog } from "./follow-up-dialog";
 import { alertDue, alertGroup } from "@/lib/workflow";
-import { birthday, today } from "@/lib/domain";
-import { Table, PersonLink } from "./ui";
 export default function MyWork({
   d,
   userId,
@@ -21,101 +20,130 @@ export default function MyWork({
   write: boolean;
   action: (a: string, v: Record<string, unknown>, id?: string) => Promise<void>;
 }) {
-  const [followUp, setFollowUp] = useState<Alert | null>(null);
-  const cases = d.people.filter(
-    (p) => p.assignedId === userId && p.status === "Active",
-  );
-  const ids = new Set(cases.map((p) => p.id));
-  const alerts = d.alerts.filter(
-    (a) =>
-      a.status === "Pending" &&
-      (a.assignedId === userId ||
-        (!a.assignedId && a.personId && ids.has(a.personId))),
-  );
+  const [f, setF] = useFilters(),
+    [followUp, setFollowUp] = useState<Alert | null>(null);
+  const {
+    data: result,
+    error,
+    busy,
+    reload,
+  } = useResource<{
+    alerts: Data["alerts"];
+    people: Data["people"];
+    grants: Data["grants"];
+    total: number;
+    page: number;
+    size: number;
+    counts: Record<string, number>;
+  }>("my-work", `/api/tasks?${new URLSearchParams(f)}`, d);
+  const summary = d.myWorkSummary,
+    context = {
+      ...d,
+      people: [...d.people, ...(result?.people || [])],
+      grants: result?.grants || [],
+      alerts: result?.alerts || [],
+    };
   return (
     <>
       <div className="stat-grid">
         {[
-          ["My Cases", cases.length, "/members?assigned=" + userId],
-          [
-            "Alerts Due Today",
-            alerts.filter((a) => alertGroup(a) === "Today").length,
-            "/alerts?view=my&time=Today",
-          ],
+          ["My Cases", summary?.cases ?? 0, `/members?assigned=${userId}`],
+          ["Tasks Due Today", result?.counts.Today ?? 0, "/my-work?time=Today"],
           [
             "Overdue Items",
-            alerts.filter((a) => alertGroup(a) === "Overdue").length,
-            "/alerts?view=my&time=Overdue",
+            result?.counts.Overdue ?? 0,
+            "/my-work?time=Overdue",
           ],
           [
             "Unassigned Cases",
-            d.people.filter(
-              (p) =>
-                p.kind === "Member" && p.status === "Active" && !p.assignedId,
-            ).length,
+            summary?.unassigned ?? 0,
             "/members?assigned=Unassigned",
           ],
-        ].map(([name, n, href]) => (
+        ].map(([name, count, href]) => (
           <Link className="stat" key={name} href={String(href)}>
             <small>{name}</small>
-            <strong>{n}</strong>
-            <span>View records →</span>
+            <strong>{count}</strong>
+            <span>View records</span>
           </Link>
         ))}
       </div>
-      <div className="stat-grid">
-        <Link className="stat" href={`/grants?assigned=${userId}`}>
-          <small>My grant follow-ups</small>
-          <strong>
-            {
-              d.grants.filter(
-                (g) =>
-                  g.assignedId === userId &&
-                  g.nextReviewDate &&
-                  !closedGrant(g),
-              ).length
-            }
-          </strong>
-          <span>View assigned support records</span>
-        </Link>
-        <Link
-          className="stat"
-          href={`/reports?view=birthdays&assigned=${userId}`}
-        >
-          <small>Upcoming birthdays in my cases</small>
-          <strong>
-            {
-              cases.filter(
-                (p) =>
-                  p.kind === "Member" &&
-                  p.dob &&
-                  birthday(new Date(p.dob), today()).days <= 30,
-              ).length
-            }
-          </strong>
-          <span>Next 30 days</span>
-        </Link>
+      <div className="review-views" aria-label="Task periods">
+        {["All tasks", "Overdue", "Today", "Upcoming", "Completed"].map(
+          (time) => (
+            <button
+              key={time}
+              className={
+                (f.time || "All tasks") === time ? "selected" : "secondary"
+              }
+              aria-pressed={(f.time || "All tasks") === time}
+              onClick={() =>
+                setF({
+                  ...f,
+                  time: time === "All tasks" ? "" : time,
+                  page: "1",
+                })
+              }
+            >
+              {time}
+              {time !== "All tasks" ? ` (${result?.counts[time] || 0})` : ""}
+            </button>
+          ),
+        )}
       </div>
       <h2>My follow-ups</h2>
+      {error && (
+        <p role="alert" className="error">
+          {error} <button onClick={reload}>Retry tasks</button>
+        </p>
+      )}
+      {busy && (
+        <p className="inline-progress" role="status">
+          Refreshing tasks...
+        </p>
+      )}
       <Table
-        headers={["Action", "Person", "Due", "Priority", "Complete"]}
-        rows={alerts.map((a) => ({
+        headers={[
+          "Action",
+          "Person",
+          "Due",
+          "Assigned staff",
+          "Status",
+          "Complete",
+        ]}
+        server={{
+          total: result?.total || 0,
+          page: result?.page || 1,
+          size: result?.size || 20,
+          onPage: (n) => setF({ ...f, page: String(n) }),
+          onSize: (n) => setF({ ...f, size: String(n), page: "1" }),
+          onSort: () => {},
+          sortableColumns: [],
+        }}
+        rows={(result?.alerts || []).map((a) => ({
           id: a.id,
-          sort: alertDue(a),
           cells: [
-            <Link key="a" href="/alerts?view=my">
+            <Link
+              key="action"
+              href={`/alerts?q=${encodeURIComponent(a.title)}`}
+            >
               {a.title}
             </Link>,
             a.personId ? (
-              <PersonLink key="p" id={a.personId}>
-                {label(d.people.find((p) => p.id === a.personId)!)}
+              <PersonLink key="person" id={a.personId}>
+                {label(context.people.find((p) => p.id === a.personId)!)}
               </PersonLink>
             ) : (
-              "—"
+              "No linked profile"
             ),
             day(alertDue(a)),
-            a.priority,
-            write && a.grantId && a.type === "Grant review" ? (
+            a.assigned?.name || "Unassigned",
+            <Badge key="status">
+              {a.status === "Pending" ? alertGroup(a) : a.status}
+            </Badge>,
+            write &&
+            a.status === "Pending" &&
+            a.grantId &&
+            a.type === "Grant review" ? (
               <button
                 key="complete"
                 className="secondary"
@@ -124,7 +152,7 @@ export default function MyWork({
                 Mark Follow-up Done
               </button>
             ) : (
-              "?"
+              "View only"
             ),
           ],
         }))}
@@ -132,35 +160,32 @@ export default function MyWork({
       {followUp && (
         <FollowUpDialog
           alert={followUp}
-          d={d}
+          d={context}
           action={action}
           onClose={() => setFollowUp(null)}
         />
       )}
-      <h2>Recently updated cases</h2>
+      <div className="section-head">
+        <h2>Recently updated cases</h2>
+        <Link href={`/members?assigned=${userId}`}>View all my cases</Link>
+      </div>
       <Table
-        headers={["Person", "Centre", "Updated", "Upcoming birthday"]}
-        rows={cases.map((p) => ({
+        headers={["Person", "Centre", "Updated"]}
+        rows={d.people.map((p) => ({
           id: p.id,
-          sort: String(9999999999999 - Date.parse(p.updatedAt)).padStart(
-            13,
-            "0",
-          ),
+          sort: String(9999999999999 - Date.parse(p.updatedAt)),
           cells: [
-            <PersonLink key="p" id={p.id}>
+            <PersonLink key="person" id={p.id}>
               {label(p)}
             </PersonLink>,
             p.centre,
             day(p.updatedAt),
-            p.dob && birthday(new Date(p.dob), today()).days <= 30
-              ? birthday(new Date(p.dob), today()).date
-              : "—",
           ],
         }))}
       />
       {manager && (
-        <>
-          <h2>Staff workload</h2>
+        <details className="panel">
+          <summary>Staff workload</summary>
           <Table
             headers={[
               "Staff",
@@ -168,27 +193,21 @@ export default function MyWork({
               "Pending alerts",
               "Grant follow-ups",
             ]}
-            rows={d.staff
-              .filter((s) => s.active)
-              .map((s) => ({
-                id: s.id,
-                sort: s.name,
-                cells: [
-                  s.name,
-                  d.people.filter(
-                    (p) => p.status === "Active" && p.assignedId === s.id,
-                  ).length,
-                  d.alerts.filter(
-                    (a) => a.status === "Pending" && a.assignedId === s.id,
-                  ).length,
-                  d.grants.filter(
-                    (g) => g.assignedId === s.id && g.nextReviewDate,
-                  ).length,
-                ],
-              }))}
+            rows={(summary?.workload || []).map((s) => ({
+              id: s.id,
+              cells: [s.name, s.cases, s.alerts, s.grants],
+            }))}
           />
-        </>
+        </details>
       )}
+      <div className="actions">
+        <Link href={`/grants?assigned=${userId}`}>
+          {summary?.grantFollowups || 0} assigned grant follow-ups
+        </Link>
+        <Link href={`/reports?view=birthdays&assigned=${userId}`}>
+          {summary?.birthdays || 0} upcoming caregiver birthdays
+        </Link>
+      </div>
     </>
   );
 }

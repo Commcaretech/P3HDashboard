@@ -81,6 +81,7 @@ export function Editor({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [tab, setTab] = useState(fields[0]?.section ?? "Details");
+  const [optionSearch, setOptionSearch] = useState<Record<string, string>>({});
   const isGrant =
     fields.some((f) => f.key === "scheme") &&
     fields.some((f) => f.key === "followUpFrequency");
@@ -187,6 +188,13 @@ export function Editor({
               : "Enter an application or submission date. Other schemes require a frequency or a one-time follow-up date."}
           </p>
         )}
+        {fields.some((f) => f.key === "memberId") && (
+          <p className="muted">
+            Start with basic information and the case owner. Contact Details and
+            the other tabs retain optional caregiving, health and imported
+            information.
+          </p>
+        )}
         <div className="form-grid">
           {fields.map((f) => (
             <label
@@ -197,6 +205,17 @@ export function Editor({
             >
               {f.label}
               {f.required ? " *" : ""}
+              {f.type === "select" && (f.options?.length || 0) > 15 && (
+                <input
+                  type="search"
+                  aria-label={`Search ${f.label}`}
+                  placeholder={`Search ${f.label.toLowerCase()}...`}
+                  value={optionSearch[f.key] || ""}
+                  onChange={(e) =>
+                    setOptionSearch((v) => ({ ...v, [f.key]: e.target.value }))
+                  }
+                />
+              )}
               {f.type === "chips" ? (
                 <ChipInput
                   label={f.label}
@@ -225,11 +244,20 @@ export function Editor({
                   value={values[f.key]}
                   onChange={(e) => changeValue(f.key, e.target.value)}
                 >
-                  {f.options?.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
+                  {f.options
+                    ?.filter(
+                      (o) =>
+                        !optionSearch[f.key] ||
+                        o.value === values[f.key] ||
+                        o.label
+                          .toLowerCase()
+                          .includes(optionSearch[f.key].toLowerCase()),
+                    )
+                    .map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
                 </select>
               ) : (
                 <input
@@ -278,9 +306,13 @@ export function Badge({ children }: { children: React.ReactNode }) {
   const text = String(children).toLowerCase();
   const tone = /overdue|expired|rejected|high|not recommended/.test(text)
     ? "danger"
-    : /pending|waitlist|review(?!ed)|needs recheck|unverified|tentative|incomplete|tbc|missing|low confidence|due soon/.test(text)
+    : /pending|waitlist|review(?!ed)|needs recheck|unverified|tentative|incomplete|tbc|missing|low confidence|due soon/.test(
+          text,
+        )
       ? "warning"
-      : /inactive|archived|dismissed|closed|unassigned|cancelled|hidden|past/.test(text)
+      : /inactive|archived|dismissed|closed|unassigned|cancelled|hidden|past/.test(
+            text,
+          )
         ? "neutral"
         : /submitted|scheduled|receiv|recorded|registered/.test(text)
           ? "info"
@@ -509,7 +541,9 @@ export function Table({
             ).map((r) => (
               <tr key={r.id}>
                 {r.cells.map((c, i) => (
-                  <td key={i}>{c}</td>
+                  <td key={i} data-label={headers[i]}>
+                    {c}
+                  </td>
                 ))}
               </tr>
             ))}
