@@ -34,7 +34,7 @@ Legacy visibility is never invented. Existing false defaults remain unknown unle
 
 The source domain is never replaced. Suggested tags may supplement a broad or inconsistent domain, but they are not written over staff ProgrammeInterest links. Existing staff tags take precedence for displayed tags. Explicit corrections set interestTagsReviewed, allowing staff to suppress unwanted automatic suggestions, including saving an empty set. Corrections use the existing Interest dictionary and ProgrammeInterest relationships. There is no second interest database, AI request or external classification service.
 
-Name-based tags describe interests only. They never establish supported languages, accessibility, mobility safety, medical suitability, intended audience, vacancies or capacity. Unknown/non-English subjects can require staff correction or future additions to the rule registry; there is no guessed translation.
+Automatically derived tags describe interests only. They never establish supported languages, accessibility, mobility safety, medical suitability, intended audience, vacancies or capacity. Unknown/non-English subjects can require staff correction or future additions to the rule registry; there is no guessed translation.
 
 ## Recommendation rules
 
@@ -42,13 +42,13 @@ The Senior / care recipient tab uses the selected senior's own recorded interest
 
 Interest relevance scoring is transparent and bounded at 100:
 
-| Evidence | Maximum points |
-| --- | --- |
-| Recorded interests or explicitly supplied preferred activities matching programme subject/staff tags | 60 |
-| Relevant programme-name keywords, unless explicitly overridden by corrected tags | 15 |
-| Source domain supporting a recorded interest | 10 |
-| Same recorded centre, only after an interest/domain match | 10 |
-| Matching verified programme language, only after an interest/domain match | 5 |
+| Evidence                                                                                             | Maximum points |
+| ---------------------------------------------------------------------------------------------------- | -------------- |
+| Recorded interests or explicitly supplied preferred activities matching programme subject/staff tags | 60             |
+| Relevant programme-name or detail keywords, unless explicitly overridden by corrected tags           | 15             |
+| Source domain supporting a recorded interest                                                         | 10             |
+| Same recorded centre, only after an interest/domain match                                            | 10             |
+| Matching verified programme language, only after an interest/domain match                            | 5              |
 
 A conflicting broad domain does not create a false match to an unrelated title. Centre or language alone cannot create a suggestion. Unknown language and accessibility earn no positive points. Medical conditions earn no points in this interest-based ranking, and no medical safety is inferred. The existing low-level legacy matching function remains available for its established callers/tests; the recommendation page uses the new interest matcher.
 
@@ -60,7 +60,7 @@ Each card shows the name, centre, domain, relevant tags, matching reasons, next 
 
 ## Optional staff workflow and registration
 
-The five centre tabs remain. Main metrics are imported programmes, programmes with confirmed upcoming sessions, programmes without confirmed schedules and interest tags to check. Actual scheduling problems appear separately in an expandable diagnostic section. Missing source visibility has its own import diagnostic. Pending Review/In Review/Reviewed/Needs Recheck remain optional staff queues; none is a prerequisite for an interest suggestion.
+The five centre tabs remain. Main metrics are imported programmes, programmes with confirmed upcoming sessions, programmes without confirmed schedules and interest tags to check. Actual scheduling problems appear separately in an expandable diagnostic section. Missing source visibility has its own import diagnostic. The main catalogue shows automatic matching tags instead of review queues. Optional assessment statuses remain available in expanded filters; none is a prerequisite for an interest suggestion.
 
 Edit interest tags is a short independent form. Staff do not complete seven fields just to correct classification. The existing structured review still supports draft, approved and further-information states and preserves saved notes, reviewer/time, assessed fields and registration status. Sync never resets staff interest corrections or replaces local suitability values with guessed classifications.
 
@@ -87,7 +87,7 @@ No deployment or operational database migration was performed automatically.
 3. Build with `npm ci --include=dev && npm run cloud:build`; start with `npm run cloud:start`. Startup applies the dedicated cloud migration through migrate deploy. Do not use db push, reset, truncate or seed against production.
 4. Verify /api/health, staff login and retained records. Run the read-only aggregate diagnostic using the production environment if available.
 5. Verify that Program-SpaceBooking serves the updated contract and use Sync Now once. Review visibility/occurrence groups and the diagnostic counts. Do not turn unknown visibility into true merely to recover a numeric total.
-6. Test a senior with recorded interests and incomplete programme suitability. Confirm interest suggestions, additional checks, the separate caregiver audience, tag correction, restricted centres and disabled unverified registration.
+6. Test a senior with recorded interests and incomplete programme suitability. Confirm interest suggestions, expandable information notes, the separate caregiver audience, tag correction, restricted centres and disabled unverified registration.
 
 For local SQLite, back up first, run `npm.cmd run db:generate` and `npm.cmd run db:migrate`, then start the app. Use cloud commands for PostgreSQL. Rollback retains additive columns and all records; disable sync first if necessary and restore a reviewed application release without dropping tables.
 
@@ -110,3 +110,11 @@ Diagnostics: scripts/programme-import-diagnostics.ts. Tests: tests/interest-sugg
 - TypeScript, ESLint, production build, restart persistence and both SQLite/PostgreSQL Prisma schema validations passed.
 - Tablet recommendation screenshots were inspected. Production browser assets were checked for server feed URL/shared-secret variable names and the upstream token header; none were found.
 - No operational database migration, deployment, live hosted source comparison or physical-device test was performed. PostgreSQL validation verifies the schema, not a live production migration.
+
+### Automatic import and matching
+
+Sync Now imports programmes directly. Staff do not need to complete the suitability review form or add matching fields. Matching derives interest tags from the programme name, description, source programme type, active visible session names and source domain. Suggestions refresh from the current information, including programmes already imported. Existing staff tag corrections (including an intentionally empty selection) take precedence.
+
+The catalogue displays automatic matching tags instead of a review queue. Optional suitability assessments remain under More programme actions for staff who have additional information. Unknown language, accessibility and medical suitability remain unknown; they do not block interest recommendations. Registration availability and source schedule checks remain separate.
+
+Validation for the automatic matching update: 95 unit/integration tests and all 18 Playwright workflows passed locally. TypeScript, ESLint and the production build passed. No deployment was performed.

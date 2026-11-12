@@ -15,13 +15,11 @@ import { scheduleLabel } from "@/lib/programme-source";
 import { Programme, Staff } from "@/lib/types";
 import {
   catalogueCounts,
-  reviewStatus,
   reviewStatuses,
   nextOccurrence,
   futureOccurrences,
   eligibilityLabels,
   sourceStates,
-  suitabilityIssues,
 } from "@/lib/programme-source";
 import { request, useFilters } from "./common";
 import { Table, Badge, ActionMenu } from "./ui";
@@ -268,19 +266,11 @@ export default function Programmes({
             <small>Optional staff corrections</small>
           </button>
         </div>
-        <div className="actions">
-          <button
-            className="secondary"
-            onClick={() => change("review", "Pending Review")}
-            aria-label={`Pending Reviews: ${counts?.pending ?? 0}`}
-          >
-            Optional reviews: {counts?.pending ?? 0} pending
-          </button>
-          <small>
-            Reviews help verify suitability and registration; they do not block
-            interest suggestions.
-          </small>
-        </div>
+        <p className="muted">
+          Sync Now imports programmes and makes them available for automatic
+          interest matching. No review form or extra programme fields are
+          required.
+        </p>
         {Boolean(counts?.concerns) && (
           <details className="notice">
             <summary>
@@ -370,8 +360,7 @@ export default function Programmes({
                 </span>
                 <small>
                   {c.counts.scheduledProgrammes} dated programmes /{" "}
-                  {c.counts.unconfirmed} schedule not confirmed /{" "}
-                  {c.counts.reviewed} staff reviewed
+                  {c.counts.unconfirmed} schedule not confirmed
                 </small>
               </>
             ) : (
@@ -384,8 +373,8 @@ export default function Programmes({
         <div>
           <h2>Programme Catalogue</h2>
           <p>
-            Find activities by interests. Suitability review and registration
-            checks are optional follow-up steps.
+            Interests are matched automatically from programme names and
+            available details. You can adjust the suggested tags at any time.
           </p>
         </div>
         <div className="row-actions">
@@ -398,24 +387,6 @@ export default function Programmes({
           {write && <button onClick={() => onEdit()}>+ Add programme</button>}
         </div>
       </div>
-      <nav className="review-views" aria-label="Programme review queues">
-        {["All Programmes", ...reviewStatuses].map((status) => (
-          <button
-            key={status}
-            className={
-              (f.review || "All Programmes") === status
-                ? "selected"
-                : "secondary"
-            }
-            aria-pressed={(f.review || "All Programmes") === status}
-            onClick={() =>
-              change("review", status === "All Programmes" ? "" : status)
-            }
-          >
-            {status}
-          </button>
-        ))}
-      </nav>
       <form
         className="catalogue-filters panel"
         onSubmit={(e) => e.preventDefault()}
@@ -531,7 +502,7 @@ export default function Programmes({
       {current && rows.length === 0 ? (
         <section className="panel empty">
           <h3>No programmes match these filters</h3>
-          <p>Try another review queue or category, or reset the filters.</p>
+          <p>Try another category or reset the filters.</p>
           <button className="secondary" onClick={() => setF({})}>
             Reset Filters
           </button>
@@ -543,7 +514,7 @@ export default function Programmes({
             "Centre",
             "Next Session",
             "Category",
-            "Optional Review",
+            "Automatic matching",
             "Registration Status",
             "Actions",
           ]}
@@ -567,9 +538,10 @@ export default function Programmes({
                 direction: String(direction),
                 page: "1",
               }),
-            sortableColumns: [0, 1, 2, 3, 4, 5],
+            sortableColumns: [0, 1, 2, 3, 5],
           }}
           rows={rows.map((p) => {
+            const evidence = programmeInterestEvidence(p);
             const next =
               nextOccurrence(p, f.date) ||
               futureOccurrences(p).find((o) => !f.date || o.date! >= f.date);
@@ -582,8 +554,7 @@ export default function Programmes({
                     <Badge>{p.external ? "Synced" : "Manual"}</Badge>
                     <small>
                       Interests:{" "}
-                      {programmeInterestEvidence(p).tags.join(", ") ||
-                        "No interest tags yet"}
+                      {evidence.tags.join(", ") || "No interest tags yet"}
                     </small>
                     {p.external && p.external.groupingStatus !== "Verified" && (
                       <small>Series grouping unverified</small>
@@ -612,8 +583,8 @@ export default function Programmes({
                   </p>
                   <p>
                     Interests:{" "}
-                    {p.interests.map((x) => x.interest.name).join(", ") ||
-                      "Not yet assessed"}
+                    {evidence.tags.join(", ") ||
+                      "No specific information supplied"}
                   </p>
                   <p>Mobility: {p.mobility || "Not yet assessed"}</p>
                   <p>
@@ -627,6 +598,11 @@ export default function Programmes({
                     </p>
                   )}
                   <ProgrammeSessions p={p} />
+                  {p.external && !write && (
+                    <button className="secondary" onClick={() => setReview(p)}>
+                      View optional suitability assessment
+                    </button>
+                  )}
                 </details>,
                 p.centre || "Shared programme",
                 next ? (
@@ -645,28 +621,19 @@ export default function Programmes({
                   "No confirmed dates"
                 ),
                 p.category || "Uncategorised",
-                <div key="review">
-                  <span
-                    className={
-                      reviewStatus(p) === "Reviewed" ? "badge success" : "muted"
-                    }
-                  >
-                    {reviewStatus(p)}
-                  </span>
-                  {p.external && suitabilityIssues(p).length > 0 && (
-                    <small>Suitability not yet verified</small>
-                  )}
+                <div key="matching">
+                  <Badge>
+                    {evidence.staffMaintained ? "Staff tags" : "Automatic"}
+                  </Badge>
+                  <small>
+                    {evidence.tags.join(", ") ||
+                      "Uses available programme information"}
+                  </small>
                 </div>,
                 <Badge key="registration">{p.registrationStatus}</Badge>,
                 <div className="row-actions" key="actions">
                   {p.external ? (
                     <>
-                      <button
-                        className={"secondary"}
-                        onClick={() => setReview(p)}
-                      >
-                        {write ? "Review Programme" : "View review"}
-                      </button>
                       {write && (
                         <button
                           className="secondary"
@@ -677,6 +644,12 @@ export default function Programmes({
                       )}
                       {write && (
                         <ActionMenu label="More programme actions">
+                          <button
+                            className="secondary"
+                            onClick={() => setReview(p)}
+                          >
+                            Optional suitability assessment
+                          </button>
                           <button
                             className="secondary"
                             onClick={() => onEdit(p)}

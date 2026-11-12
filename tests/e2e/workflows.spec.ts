@@ -1620,7 +1620,7 @@ test("manual programme sync uses protected server fetch, scoped permissions and 
   expect(status).not.toContain("passwordHash");
 });
 
-test("centre catalogue tabs, interactive review queues and persisted suitability work on tablets", async ({
+test("automatic catalogue matching and optional persisted suitability work on tablets", async ({
   page,
   context,
 }) => {
@@ -1712,11 +1712,21 @@ test("centre catalogue tabs, interactive review queues and persisted suitability
       (p: { centre: string }) => p.centre === "GLOW Bukit Batok",
     ),
   ).toBe(true);
-  await page
-    .getByRole("button", { name: "Pending Reviews: 2", exact: true })
-    .click();
+  await expect(
+    page.getByText("No review form or extra programme fields are required.", {
+      exact: false,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("navigation", { name: "Programme review queues" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Review Programme", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.locator('td[data-label="Automatic matching"]').first(),
+  ).toBeVisible();
   await expect(page).toHaveURL(/centre=GLOW_BB/);
-  await expect(page).toHaveURL(/review=Pending/);
   await page.getByRole("button", { name: "Filters", exact: true }).click();
   await page.getByLabel("Category", { exact: true }).selectOption("Physical");
   await page
@@ -1725,8 +1735,12 @@ test("centre catalogue tabs, interactive review queues and persisted suitability
   await expect(
     page.getByRole("status").filter({ hasText: "2 matching programmes" }),
   ).toBeVisible();
+  await page.getByLabel("More programme actions").first().click();
   await page
-    .getByRole("button", { name: "Review Programme", exact: true })
+    .getByRole("button", {
+      name: "Optional suitability assessment",
+      exact: true,
+    })
     .first()
     .click();
   let dialog = page.getByRole("dialog");
@@ -1758,12 +1772,26 @@ test("centre catalogue tabs, interactive review queues and persisted suitability
     .fill("Fictional reviewed suitability notes");
   await dialog.getByRole("button", { name: "Save Draft", exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  await page.getByRole("button", { name: "In Review", exact: true }).click();
+  await page
+    .getByLabel("Review status", { exact: true })
+    .selectOption("In Review");
   await expect(
     page.getByRole("status").filter({ hasText: "1 matching programmes" }),
   ).toBeVisible();
+  if (
+    !(await page
+      .getByRole("button", {
+        name: "Optional suitability assessment",
+        exact: true,
+      })
+      .isVisible())
+  )
+    await page.getByLabel("More programme actions").click();
   await page
-    .getByRole("button", { name: "Review Programme", exact: true })
+    .getByRole("button", {
+      name: "Optional suitability assessment",
+      exact: true,
+    })
     .click();
   dialog = page.getByRole("dialog");
   await expect(
@@ -1785,13 +1813,15 @@ test("centre catalogue tabs, interactive review queues and persisted suitability
     .getByRole("button", { name: "Mark as Reviewed", exact: true })
     .click();
   await expect(dialog).toHaveCount(0);
-  await page.getByRole("button", { name: "Reviewed", exact: true }).click();
+  await page
+    .getByLabel("Review status", { exact: true })
+    .selectOption("Reviewed");
   await expect(
     page.getByRole("status").filter({ hasText: "1 matching programmes" }),
   ).toBeVisible();
   await page.reload();
   await expect(
-    page.getByRole("table").getByText("Reviewed", { exact: true }),
+    page.getByRole("table").getByText("Staff tags", { exact: true }),
   ).toBeVisible();
   const reviewed = await (
     await context.request.get(
@@ -1971,6 +2001,12 @@ test("seniors receive unreviewed interest suggestions and staff can correct tags
   await expect(
     card.getByText("Suggested by interests", { exact: true }),
   ).toBeVisible();
+  await expect(
+    card.getByText("Accessibility Not Assessed", { exact: true }),
+  ).toBeHidden();
+  await card
+    .getByText("Information not supplied by the programme", { exact: true })
+    .click();
   await expect(
     card.getByText("Accessibility Not Assessed", { exact: true }),
   ).toBeVisible();

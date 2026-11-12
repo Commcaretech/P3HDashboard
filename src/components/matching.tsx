@@ -99,9 +99,9 @@ export default function Matching({
       <section className="panel">
         <h2>Find programme recommendations</h2>
         <p>
-          Suggestions use recorded interests, programme names and source
-          domains. They do not establish medical suitability or registration
-          availability.
+          Suggestions automatically use recorded interests, programme names,
+          descriptions, session details and source domains. They do not
+          establish medical suitability or registration availability.
         </p>
         <div
           className="tabs"
@@ -313,18 +313,22 @@ export default function Matching({
                   </div>
                   {r.missing.length > 0 && (
                     <>
-                      <h3>Additional checks</h3>
-                      <ul>
-                        {r.missing
-                          .filter(
-                            (item) =>
-                              item !== scheduleLabel(r.p) &&
-                              !item.startsWith("Registration"),
-                          )
-                          .map((item) => (
-                            <li key={item}>{item}</li>
-                          ))}
-                      </ul>
+                      <details>
+                        <summary>
+                          Information not supplied by the programme
+                        </summary>
+                        <ul>
+                          {r.missing
+                            .filter(
+                              (item) =>
+                                item !== scheduleLabel(r.p) &&
+                                !item.startsWith("Registration"),
+                            )
+                            .map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                        </ul>
+                      </details>
                     </>
                   )}
                   <div className="actions">

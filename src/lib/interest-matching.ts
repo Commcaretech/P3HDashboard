@@ -43,7 +43,7 @@ export function interestMatch(profile: InterestProfile, p: Programme) {
     tokens = profileInterestTokens(preferences),
     primary = evidence.staffMaintained
       ? profileInterestTokens(evidence.tags)
-      : evidence.nameTags.map(normalizeInterest),
+      : evidence.subjectTags.map(normalizeInterest),
     matched = preferences.filter((value) =>
       profileInterestTokens([value]).some((t) => primary.includes(t)),
     );
@@ -55,7 +55,7 @@ export function interestMatch(profile: InterestProfile, p: Programme) {
     reasons.push(`Matches recorded interests: ${matched.join(", ")} (+60)`);
   }
   const nameHit =
-    !p.interestTagsReviewed &&
+    !evidence.staffMaintained &&
     evidence.nameTags.some((tag) => tokens.includes(normalizeInterest(tag)));
   if (nameHit) {
     score += 15;
@@ -63,10 +63,24 @@ export function interestMatch(profile: InterestProfile, p: Programme) {
       `Programme name suggests ${evidence.nameTags.join(", ")} (+15)`,
     );
   }
+  const detailHit =
+    !evidence.staffMaintained &&
+    !nameHit &&
+    evidence.detailTags.some((tag) => tokens.includes(normalizeInterest(tag)));
+  if (detailHit) {
+    score += 15;
+    reasons.push(
+      `Programme details suggest ${evidence.detailTags.join(", ")} (+15)`,
+    );
+  }
   const domainHit = evidence.domainTags.some((tag) =>
     tokens.includes(normalizeInterest(tag)),
   );
-  if (domainHit && (!evidence.domainMismatch || matched.length)) {
+  if (
+    domainHit &&
+    !evidence.staffMaintained &&
+    (!evidence.domainMismatch || matched.length)
+  ) {
     score += 10;
     reasons.push(
       `Source domain: ${p.category}; supports a recorded interest (+10)`,

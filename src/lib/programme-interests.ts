@@ -166,10 +166,44 @@ export function programmeInterestEvidence(
   p: Pick<
     Programme,
     "name" | "category" | "interests" | "interestTagsReviewed"
-  >,
+  > &
+    Partial<Pick<Programme, "description" | "external">>,
 ) {
-  const rules = interestRules.filter((r) =>
+  const nameRules = interestRules.filter((r) =>
       r.pattern.test(normalizeInterest(p.name)),
+    ),
+    details = [
+      p.description,
+      p.external?.programmeType,
+      ...((p.external?.missing ? [] : p.external?.occurrences) || [])
+        .filter(
+          (o) =>
+            !o.missing &&
+            !["cancelled", "inactive", "closed"].includes(
+              o.status.toLowerCase(),
+            ) &&
+            !["hidden", "cancelled", "past"].includes(
+              o.eligibilityStatus || "",
+            ) &&
+            !(
+              Array.isArray(o.reasonCodes) &&
+              o.reasonCodes.some((c) => String(c).startsWith("hidden_"))
+            ) &&
+            !(
+              (o.visibilityKnown ||
+                p.external?.eligibilityRulesVersion === 2) &&
+              (!o.timetableVisible || !o.calendarVisible)
+            ),
+        )
+        .map((o) => o.sourceActivityName),
+    ]
+      .filter(Boolean)
+      .join(" "),
+    detailRules = interestRules.filter((r) =>
+      r.pattern.test(normalizeInterest(details)),
+    ),
+    rules = interestRules.filter(
+      (r) => nameRules.includes(r) || detailRules.includes(r),
     ),
     suggested = unique([
       ...rules.flatMap((r) => r.tags),
@@ -184,7 +218,9 @@ export function programmeInterestEvidence(
     !subjectRules.some((r) => r.domains.includes(p.category));
   return {
     tags: corrected ? unique(staff) : suggested,
-    nameTags: unique(rules.flatMap((r) => r.tags)),
+    nameTags: unique(nameRules.flatMap((r) => r.tags)),
+    detailTags: unique(detailRules.flatMap((r) => r.tags)),
+    subjectTags: unique(rules.flatMap((r) => r.tags)),
     domainTags: domainInterests[p.category] || [],
     suggested,
     staffMaintained: corrected,

@@ -302,3 +302,71 @@ test("additive metadata migration retains old records and never invents legacy v
   );
   copy.close();
 });
+
+test("automatic matching uses descriptions, programme types and active session names without a review", () => {
+  for (const source of ["description", "type", "session"]) {
+    const p = activity("Weekly Programme", "");
+    if (source === "description")
+      p.description = "Learn smartphone and digital skills";
+    if (source === "type") p.external!.programmeType = "Digital learning";
+    if (source === "session")
+      p.external!.occurrences = [
+        { ...session(), sourceActivityName: "Digital Skills" },
+      ];
+    const result = interestMatch({ ...senior, interests: ["Technology"] }, p);
+    assert.equal(result.eligible, true, source);
+    assert.ok(result.matchedInterests.includes("Technology"), source);
+    assert.ok(
+      result.reasons.some((r) => r.startsWith("Programme details suggest")),
+      source,
+    );
+    assert.equal(result.suitabilityVerified, false);
+    assert.equal(p.review, undefined);
+    assert.equal(p.languages.length, 0);
+    assert.equal(p.mobility, "");
+  }
+});
+
+test("automatic session evidence excludes hidden, cancelled and missing sessions", () => {
+  for (const overrides of [
+    { missing: true },
+    { status: "cancelled" },
+    { eligibilityStatus: "hidden" },
+    { calendarVisible: false },
+    { reasonCodes: ["hidden_calendar"] },
+  ]) {
+    const p = activity("Weekly Programme", "");
+    p.external!.occurrences = [
+      { ...session(), sourceActivityName: "Digital Skills", ...overrides },
+    ];
+    assert.equal(
+      interestMatch({ ...senior, interests: ["Technology"] }, p).eligible,
+      false,
+    );
+  }
+});
+
+test("staff tag overrides including empty overrides take precedence over automatic details and domain", () => {
+  const p = activity("Chair Yoga", "Physical");
+  p.description = "Digital skills workshop";
+  p.interestTagsReviewed = true;
+  p.interests = [];
+  assert.equal(interestMatch(senior, p).eligible, false);
+  assert.equal(
+    interestMatch({ ...senior, interests: ["Technology"] }, p).eligible,
+    false,
+  );
+  p.interests = [{ interest: { name: "Gardening" } }];
+  assert.deepEqual(programmeInterestEvidence(p).tags, ["Gardening"]);
+  assert.equal(interestMatch(senior, p).eligible, false);
+});
+
+test("automatic tags refresh immediately when programme information changes", () => {
+  const p = activity("Weekly Programme", "");
+  p.description = "Digital skills workshop";
+  const profile = { ...senior, interests: ["Technology"] };
+  assert.equal(interestMatch(profile, p).eligible, true);
+  p.description = "Chair yoga";
+  assert.equal(interestMatch(profile, p).eligible, false);
+  assert.equal(interestMatch(senior, p).eligible, true);
+});
