@@ -6,6 +6,7 @@ export function useResource<T>(
   family: string,
   url: string,
   revision: unknown = 0,
+  enabled = true,
 ) {
   const cache = useWorkspaceCache(),
     key = `resource:${family}:${url}`;
@@ -16,6 +17,7 @@ export function useResource<T>(
   }>(() => ({ key, data: cache?.get<T>(key) ?? null, error: "" }));
   const [retry, setRetry] = useState(0);
   useEffect(() => {
+    if (!enabled) return;
     let active = true;
     const loader = () => request(url);
     const present = cache?.get<T>(key);
@@ -47,7 +49,7 @@ export function useResource<T>(
     return () => {
       active = false;
     };
-  }, [key, url, cache, revision, retry]);
+  }, [key, url, cache, revision, retry, enabled]);
   return {
     data: state.data,
     error: state.error,

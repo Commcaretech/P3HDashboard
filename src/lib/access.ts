@@ -88,3 +88,15 @@ export async function validateAssignment(
   )
     throw new Error("Assigned staff must have access to the record centre.");
 }
+
+export function surveyScope(u: AccessUser): Prisma.SurveyResponseWhereInput {
+  if (unrestricted(u)) return {};
+  return {
+    AND: [
+      unrestricted(u)
+        ? {}
+        : { centre: { in: u.allowedCentres.map((c) => c.centre) } },
+      { OR: [{ personId: null }, { person: personScope(u) }] },
+    ],
+  };
+}

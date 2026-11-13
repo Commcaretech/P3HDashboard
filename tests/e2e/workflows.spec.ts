@@ -3,9 +3,10 @@ import ExcelJS from "exceljs";
 import { readFile } from "node:fs/promises";
 import { today } from "../../src/lib/domain";
 import { addDays, calculateFollowUp } from "../../src/lib/follow-up";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, scryptSync } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { resolve } from "node:path";
+import { surveyHeaders } from "../../src/lib/survey-parser";
 
 const password = randomBytes(24).toString("base64url");
 
@@ -2398,4 +2399,376 @@ test("shared pages fit six widths and mobile navigation supports keyboard and re
       .locator(".page-head")
       .evaluate((el) => getComputedStyle(el).animationName),
   ).toBe("none");
+});
+
+test("survey upload, manual identity, corrections, profile history, exports and scoped permissions", async ({
+  page,
+  context,
+  browser,
+}) => {
+  const origin = "http://127.0.0.1:3100",
+    headers = { Origin: origin };
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "fake.admin", password },
+  });
+  const fixture = new PrismaClient({
+    datasourceUrl: `file:${resolve("data/e2e.db").replace(/\\/g, "/")}`,
+  });
+  const hashPassword = (value: string) => {
+    const salt = randomBytes(16).toString("hex");
+    return `${salt}:${scryptSync(value, salt, 64).toString("hex")}`;
+  };
+  const unique = randomUUID(),
+    memberId = `SURVEY-FAKE-${unique}`;
+  const caregiver = await fixture.person.create({
+    data: {
+      kind: "Member",
+      memberId,
+      name: "Fictional Survey Caregiver",
+      centre: "Survey Centre",
+      dob: new Date("1960-01-01"),
+      remarks: "South West $250 applied on 10/11/2026",
+    },
+  });
+  const other = await fixture.person.create({
+    data: {
+      kind: "Member",
+      memberId: `OTHER-${unique}`,
+      name: "Fictional Other Centre",
+      centre: "Other Survey Centre",
+    },
+  });
+  const reader = await fixture.user.create({
+    data: {
+      username: `survey-reader-${unique}`,
+      name: "Fictional Survey Reader",
+      passwordHash: hashPassword(password),
+      role: "Read Only",
+      allCentres: false,
+      allowedCentres: { create: [{ centre: "Survey Centre" }] },
+    },
+  });
+  const scoped = await fixture.user.create({
+    data: {
+      username: `survey-staff-${unique}`,
+      name: "Fictional Survey Staff",
+      passwordHash: hashPassword(password),
+      role: "Staff",
+      allCentres: false,
+      allowedCentres: { create: [{ centre: "Other Survey Centre" }] },
+    },
+  });
+  const quote = (xs: string[]) =>
+    xs.map((x) => '"' + x.replaceAll('"', '""') + '"').join(",");
+  const row = (
+    id: string,
+    phase: string,
+    name = "Fictional Survey Alias 00000000",
+    consent = "Yes",
+    date = "13/11/2026 10:00",
+  ) =>
+    quote([
+      id,
+      date,
+      name,
+      "01/01/1961",
+      phase,
+      consent,
+      ...Array(26).fill("3"),
+      ...Array(6).fill("2"),
+    ]);
+  const baseline = `${unique}-baseline`,
+    annual = `${unique}-annual`;
+  const csv = [
+    quote(surveyHeaders),
+    row(
+      baseline,
+      "At the start of / Before the programme",
+      undefined,
+      undefined,
+      "13/01/2026 10:00",
+    ),
+    row(
+      annual,
+      "During the annual data collection period / While I am in the programme",
+    ),
+    row(`${unique}-no`, "", "Declined Fictional", "No"),
+    row(`${unique}-test`, "", "TEST"),
+    row(`${unique}-review`, "After programme", "Different Fictional"),
+  ].join("\n");
+  await page.goto("/surveys?view=import");
+  await page.getByLabel("Import centre", { exact: true }).fill("Survey Centre");
+  await page.getByLabel("Survey CSV files", { exact: true }).setInputFiles({
+    name: "English Survey Data.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(csv),
+  });
+  await page
+    .getByRole("button", { name: "Preview surveys", exact: true })
+    .click();
+  await expect(page.getByText(/Submitted 5; eligible 3;/)).toBeVisible();
+  await page
+    .getByRole("button", { name: "Confirm survey import", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: /Unmatched Surveys and data review/ }),
+  ).toBeVisible();
+  await page
+    .locator("tbody tr")
+    .filter({ hasText: "Annual / English" })
+    .getByRole("button", { name: "Review identity", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Find caregiver for survey").fill(memberId);
+  await expect(
+    dialog.getByText("Birth date differs", { exact: false }),
+  ).toBeVisible();
+  await dialog.locator('input[type="radio"]').check();
+  await dialog
+    .getByLabel("Survey review notes", { exact: true })
+    .fill(
+      "Verified using fictional independent identifiers despite submitted birth date mismatch.",
+    );
+  await dialog.getByLabel("I verified this identity", { exact: false }).check();
+  await dialog
+    .getByLabel("Save these submitted initials/name", { exact: false })
+    .check();
+  await dialog
+    .getByRole("button", { name: "Confirm & Link Survey", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  const records = await (
+    await context.request.get(
+      "/api/surveys?view=records&centre=Survey%20Centre&size=100",
+    )
+  ).json();
+  const unlinked = records.rows.find(
+    (r: { personId: string | null; phase: string }) =>
+      !r.personId && r.phase !== "Needs Review",
+  );
+  const confirmed = await context.request.post("/api/surveys", {
+    headers,
+    data: {
+      action: "link",
+      id: unlinked.id,
+      version: unlinked.updatedAt,
+      personId: caregiver.id,
+      confirmed: true,
+      notes: "Fictional verification",
+    },
+  });
+  expect(confirmed.ok()).toBe(true);
+  await page.goto(`/people/${caregiver.id}`);
+  await page
+    .getByRole("button", { name: "Surveys & Outcomes", exact: true })
+    .click();
+  await expect(
+    page.getByText("Verified survey aliases", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("table").first().locator("tbody tr")).toHaveCount(
+    2,
+  );
+  await page
+    .getByRole("button", { name: "Export outcomes", exact: true })
+    .click();
+  // Export returns a download and records an audit, without changing the source.
+  await expect
+    .poll(async () =>
+      fixture.auditLog.count({ where: { action: "Survey outcomes exported" } }),
+    )
+    .toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Notes", exact: true }).click();
+  await expect(
+    page.getByText("Application dates suggested from remarks", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: "Review proposed application",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.goto("/surveys?view=records&centre=Survey%20Centre");
+  await expect(
+    page.getByRole("heading", { name: "Page not found", exact: true }),
+  ).toHaveCount(0);
+  for (const width of [1440, 1280, 1024, 768, 390, 375]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect(
+      page.getByRole("heading", { name: /Survey Records/ }),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth - window.innerWidth,
+      ),
+    ).toBeLessThanOrEqual(2);
+  }
+  await page.screenshot({
+    path: "test-results/surveys-mobile.png",
+    fullPage: true,
+  });
+  const first = records.rows[0];
+  const stale = await context.request.post("/api/surveys", {
+    headers,
+    data: {
+      action: "correct",
+      id: first.id,
+      version: "2000-01-01T00:00:00.000Z",
+      phase: "Annual",
+      notes: "Stale fictional correction",
+    },
+  });
+  expect(stale.status()).toBe(400);
+  const otherInput = {
+    action: "import",
+    centre: "Other Survey Centre",
+    files: [
+      {
+        name: "English.csv",
+        language: "English",
+        content: [
+          quote(surveyHeaders),
+          row(
+            `${unique}-other`,
+            "At the start of / Before the programme",
+            "Other Fictional",
+          ),
+        ].join("\n"),
+      },
+    ],
+  };
+  expect(
+    (
+      await context.request.post("/api/surveys", { headers, data: otherInput })
+    ).ok(),
+  ).toBe(true);
+  const readonly = await browser.newContext();
+  await readonly.request.post(origin + "/api/auth", {
+    headers,
+    data: { action: "login", username: reader.username, password },
+  });
+  expect(
+    (
+      await readonly.request.post(origin + "/api/surveys", {
+        headers,
+        data: otherInput,
+      })
+    ).status(),
+  ).toBe(403);
+  expect(
+    (
+      await readonly.request.post(origin + "/api/surveys/export", {
+        headers,
+        data: {},
+      })
+    ).status(),
+  ).toBe(403);
+  const restricted = await browser.newContext();
+  await restricted.request.post(origin + "/api/auth", {
+    headers,
+    data: { action: "login", username: scoped.username, password },
+  });
+  const foreign = await restricted.request.get(
+    origin + `/api/surveys?view=detail&id=${first.id}`,
+  );
+  expect(foreign.status()).toBe(403);
+  const candidates = await restricted.request.get(
+    origin + `/api/surveys?view=candidates&id=${first.id}&q=${memberId}`,
+  );
+  expect(candidates.status()).toBe(403);
+  const crossLink = await context.request.post("/api/surveys", {
+    headers,
+    data: {
+      action: "link",
+      id: records.rows.find((r: { personId: string | null }) => !r.personId).id,
+      version: records.rows.find(
+        (r: { personId: string | null }) => !r.personId,
+      ).updatedAt,
+      personId: other.id,
+      confirmed: true,
+      notes: "Wrong centre",
+    },
+  });
+  expect(crossLink.status()).toBe(400);
+  const anonymous = await browser.newContext();
+  expect((await anonymous.request.get(origin + "/api/surveys")).status()).toBe(
+    401,
+  );
+  await readonly.close();
+  await restricted.close();
+  await anonymous.close();
+  await fixture.$disconnect();
+});
+
+test("survey correction and manager unlink keep originals, audit and alias history", async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: "http://127.0.0.1:3100" };
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "fake.admin", password },
+  });
+  await page.goto("/surveys?view=records&q=Different%20Fictional");
+  await page
+    .getByRole("button", { name: "Review identity", exact: true })
+    .click();
+  let dialog = page.getByRole("dialog");
+  await dialog
+    .getByText("Source answers and corrections", { exact: true })
+    .click();
+  await dialog
+    .getByLabel("Survey review notes", { exact: true })
+    .fill("Fictional phase and answer confirmed against source.");
+  await dialog
+    .getByLabel("Corrected survey phase", { exact: true })
+    .selectOption("Annual");
+  await dialog.getByLabel("Correct Q3", { exact: true }).selectOption("1");
+  await dialog
+    .getByRole("button", { name: "Save survey corrections", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  const updated = await (
+    await context.request.get(
+      "/api/surveys?view=records&q=Different%20Fictional",
+    )
+  ).json();
+  expect(updated.rows[0].phase).toBe("Annual");
+  expect(updated.rows[0].physical).toBe(57.14);
+  const details = await (
+    await context.request.get(
+      `/api/surveys?view=detail&id=${updated.rows[0].id}`,
+    )
+  ).json();
+  expect(details.rawAnswers.Q3).toBe("3");
+  expect(details.phaseText).toBe("After programme");
+  expect(details.corrections.length).toBe(1);
+  await page.goto("/surveys?view=records&centre=Survey%20Centre");
+  await page
+    .locator("tbody tr")
+    .filter({ hasText: "Fictional Survey Caregiver" })
+    .filter({ hasText: "Annual / English" })
+    .getByRole("button", { name: "View survey", exact: true })
+    .click();
+  dialog = page.getByRole("dialog");
+  await dialog
+    .getByLabel("Survey review notes", { exact: true })
+    .fill("Fictional mistaken identity, unlink while retaining source.");
+  await dialog.getByLabel("I confirm unlinking.", { exact: false }).check();
+  await dialog
+    .getByRole("button", { name: "Unlink survey", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  const fixture = new PrismaClient({
+    datasourceUrl: `file:${resolve("data/e2e.db").replace(/\\/g, "/")}`,
+  });
+  expect(
+    await fixture.surveyIdentityReview.count({ where: { action: "Unlinked" } }),
+  ).toBeGreaterThan(0);
+  expect(
+    await fixture.personAlias.count({
+      where: { text: "Fictional Survey Alias", verified: false },
+    }),
+  ).toBe(1);
+  await fixture.$disconnect();
 });
