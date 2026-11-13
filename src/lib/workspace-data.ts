@@ -49,6 +49,7 @@ export async function workspaceData(
   });
   const schemes = [
     "settings",
+    "surveys",
     "programmes",
     "import",
     "audit",
@@ -61,6 +62,7 @@ export async function workspaceData(
   if (
     [
       "settings",
+      "surveys",
       "members",
       "care-recipients",
       "programmes",

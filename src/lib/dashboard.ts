@@ -1,5 +1,11 @@
 import { db } from "./db";
-import { AccessUser, personScope, programmeScope, alertScope } from "./access";
+import {
+  AccessUser,
+  personScope,
+  programmeScope,
+  alertScope,
+  surveyScope,
+} from "./access";
 import { birthday, today, can } from "./domain";
 import { closedGrant } from "./follow-up";
 import { alertGroup } from "./workflow";
@@ -27,6 +33,9 @@ export async function dashboardData(u: AccessUser) {
     conditions,
     activeProgrammes,
     completedThisMonth,
+    surveyResponses,
+    unmatchedSurveys,
+    surveyedCaregivers,
   ] = await Promise.all([
     db.person.findMany({
       where: scope,
@@ -101,6 +110,22 @@ export async function dashboardData(u: AccessUser) {
           gte: new Date(now.slice(0, 7) + "-01"),
           lt: new Date(Date.parse(now) + 86400000),
         },
+      },
+    }),
+    db.surveyResponse.count({ where: surveyScope(u) }),
+    db.surveyResponse.count({
+      where: { AND: [surveyScope(u), { personId: null }] },
+    }),
+    db.person.count({
+      where: {
+        AND: [
+          scope,
+          {
+            kind: "Member",
+            status: "Active",
+            surveyResponses: { some: surveyScope(u) },
+          },
+        ],
       },
     }),
   ]);
@@ -185,6 +210,9 @@ export async function dashboardData(u: AccessUser) {
           (p) => p.kind === "Care Recipient" && p.status !== "Archived",
         ).length,
         activeCases: members.length,
+        surveyResponses,
+        unmatchedSurveys,
+        surveyedCaregivers,
         dementia:
           activeConditions.find((c) => c.name.toLowerCase() === "dementia")
             ?.count ?? 0,

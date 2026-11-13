@@ -212,6 +212,9 @@ export type Data = {
   dashboardSummary?: {
     totals?: {
       members: number;
+      surveyResponses?: number;
+      unmatchedSurveys?: number;
+      surveyedCaregivers?: number;
       recipients: number;
       activeCases: number;
       dementia: number;

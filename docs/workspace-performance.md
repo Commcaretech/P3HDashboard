@@ -78,3 +78,8 @@ Live PostgreSQL execution, the hosted scheduler, Microsoft Graph delivery/inbox 
 There are no new secrets or environment variables. Migration `202611040004_workspace_maintenance` adds only the coordination table in both SQLite and PostgreSQL; it does not change existing records. Keep the earlier programme migrations too.
 
 For a local upgrade, stop the running app, create a verified backup, run `npm.cmd run db:generate`, `npm.cmd run db:migrate`, `npm.cmd run build`, then restart. Run migrations against the intended database; do not use reset or db push. For PostgreSQL use the existing `cloud:build` and `cloud:start` deployment flow; `cloud:start` deploys the cloud migrations. Check `/api/health`, sign-in, scoped navigation, one profile save, grant follow-up, birthday reminders and the scheduled job after deployment. No deployment was performed during this task.
+
+
+## Surveys & Outcomes extension
+
+The 2026-11-13 survey work retains this persistent shell and account-scoped memory cache. New paginated survey APIs, conditional requests and debounced candidate searches reuse it. The caregiver directory now loads a lean list and fetches the complete current profile before Edit. See [the survey report](surveys-outcomes.md#measured-local-workloads) for repeated 100/1,000/5,000-caregiver workloads, including recipients, grants and 200/2,000/10,000 survey responses. Directory payloads fell by 74.1%; not all API timings improved, and the report includes those regressions and measurement limits.

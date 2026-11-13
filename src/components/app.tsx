@@ -53,6 +53,9 @@ const Programmes = dynamic(() => import("./programmes"), {
 });
 import { sourceFields } from "@/lib/programme-source";
 import Profile from "./profile";
+const Surveys = dynamic(() => import("./surveys"), {
+  loading: () => <p role="status">Opening surveys...</p>,
+});
 import People from "./people";
 const Overview = dynamic(() => import("./overview"), {
   loading: () => (
@@ -116,6 +119,7 @@ const nav = [
   ["members", "Caregivers", Users],
   ["care-recipients", "Care Recipients", HeartHandshake],
   ["grants", "Grants & Referrals", HandCoins],
+  ["surveys", "Surveys & Outcomes", ChartNoAxesCombined],
   ["programmes", "Programmes", CalendarDays],
   ["matching", "Programme Matching", ScanSearch],
   ["alerts", "Alerts", Bell],
@@ -242,7 +246,11 @@ export default function DashboardApp({
             ? "people"
             : target.section;
           cache.invalidate(
-            (k) => k === key || k.startsWith(`resource:${family}`) || (target.section === "dashboard" && k.startsWith("resource:birthdays:")),
+            (k) =>
+              k === key ||
+              k.startsWith(`resource:${family}`) ||
+              (target.section === "dashboard" &&
+                k.startsWith("resource:birthdays:")),
           );
           setRevision((v) => v + 1);
         }
@@ -599,7 +607,11 @@ export default function DashboardApp({
       id: p?.id,
       version: p?.updatedAt,
     });
-  const grantEditor = async (g?: Grant, personId?: string) => {
+  const grantEditor = async (
+    g?: Grant,
+    personId?: string,
+    suggestion?: { scheme: string; applicationDate: string; source: string },
+  ) => {
     setPreparing(true);
     try {
       const formData = await options();
@@ -613,11 +625,20 @@ export default function DashboardApp({
               personId: personId ?? "",
               followUpFrequency: "Automatic",
               resolution: "Open",
+              ...(suggestion
+                ? {
+                    schemeId:
+                      formData.schemes.find((s) => s.name === suggestion.scheme)
+                        ?.id || "",
+                    applicationDate: suggestion.applicationDate,
+                    notes: `Proposed from remarks. Verify before saving: ${suggestion.source}`,
+                  }
+                : {}),
             },
         action: "grant",
         id: g?.id,
         version: g?.updatedAt,
-        confirm: Boolean(g),
+        confirm: Boolean(g || suggestion),
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to open form");
@@ -882,6 +903,12 @@ export default function DashboardApp({
                           <button onClick={() => personEditor()}>
                             Add Caregiver
                           </button>
+                          <Link
+                            className="secondary link-button"
+                            href="/surveys?view=import"
+                          >
+                            Import Survey
+                          </Link>
                           <button
                             className="secondary"
                             onClick={() => grantEditor()}
@@ -907,6 +934,14 @@ export default function DashboardApp({
                     />
                   </>
                 )}
+                {section === "surveys" && (
+                  <Surveys
+                    write={write}
+                    manager={can(u.role, "audit")}
+                    revision={revision}
+                    onChanged={() => invalidate("survey")}
+                  />
+                )}
                 {section === "my-work" && (
                   <MyWork
                     d={data}
@@ -923,7 +958,34 @@ export default function DashboardApp({
                     revision={revision}
                     kind={section === "members" ? "Member" : "Care Recipient"}
                     write={write}
-                    onEdit={personEditor}
+                    onEdit={(p, kind) => {
+                      if (!p) {
+                        personEditor(undefined, kind);
+                        return;
+                      }
+                      setPreparing(true);
+                      void request(
+                        `/api/data?section=people&id=${encodeURIComponent(p.id)}`,
+                      )
+                        .then((detail: Data) => {
+                          const full = detail.people.find(
+                            (row) => row.id === p.id,
+                          );
+                          if (!full)
+                            throw new Error(
+                              "Record is no longer available. Refresh the directory.",
+                            );
+                          personEditor(full);
+                        })
+                        .catch((e) =>
+                          setError(
+                            e instanceof Error
+                              ? e.message
+                              : "Cannot open caregiver",
+                          ),
+                        )
+                        .finally(() => setPreparing(false));
+                    }}
                     onArchive={(p) => {
                       if (
                         window.confirm(
@@ -941,6 +1003,8 @@ export default function DashboardApp({
                     id={recordId ?? ""}
                     write={write}
                     onEdit={personEditor}
+                    manager={can(u.role, "audit")}
+                    revision={revision}
                     grant={grantEditor}
                     alert={createAlert}
                     edit={(e) => void openEditor(e)}
@@ -1208,6 +1272,7 @@ export default function DashboardApp({
                   "members",
                   "care-recipients",
                   "people",
+                  "surveys",
                   "programmes",
                   "matching",
                   "grants",

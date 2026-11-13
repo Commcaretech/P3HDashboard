@@ -66,3 +66,8 @@ Global suggestions use authenticated `/api/search`, a 250 ms debounce, bounded r
 - Focused APIs: people lists, search suggestions and import history. Existing `/api/data` remains available for compatibility and multi-record dashboard/profile/report workflows.
 
 No telemetry, remote asset or browser record storage is introduced. Optional configured staff reminder emails use an HTTPS provider. The previously authorised optional Render/Supabase deployment remains supported. The UI changes do not change the organisation's hosting choice.
+
+
+## Surveys & Outcomes
+
+Use the [survey staff guide](surveys-staff-guide.md) for multilingual CSV previews, unmatched identities, Member ID confirmation, verified aliases, caregiver history, provisional scoring and manager exports. Programme sync remains automatic for import and interest matching; the separate survey identity confirmation protects caregiver outcomes from incorrect nickname matches.

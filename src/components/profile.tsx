@@ -1,14 +1,21 @@
 "use client";
 import { useState } from "react";
+import dynamic from "next/dynamic";
+const Surveys = dynamic(() => import("./surveys"), {
+  loading: () => <p>Loading survey history...</p>,
+});
 import Link from "next/link";
 import { Data, Person, Grant, label, day } from "@/lib/types";
 import { Table, Badge, PersonLink } from "./ui";
 import { completeness, alertDue } from "@/lib/workflow";
 import { names, Editing } from "./common";
+import { grantDatesFromNotes } from "@/lib/grant-note-dates";
 export default function Profile({
   d,
   id,
   write,
+  manager = false,
+  revision = 0,
   onEdit,
   grant,
   alert,
@@ -18,8 +25,14 @@ export default function Profile({
   d: Data;
   id: string;
   write: boolean;
+  manager?: boolean;
+  revision?: number;
   onEdit: (p: Person) => void;
-  grant: (g?: Grant, personId?: string) => void;
+  grant: (
+    g?: Grant,
+    personId?: string,
+    suggestion?: { scheme: string; applicationDate: string; source: string },
+  ) => void;
   alert: (id?: string) => void;
   edit: (e: Editing) => void;
   action: (
@@ -166,6 +179,7 @@ export default function Profile({
           "Notes",
           "Health",
           "Interests",
+          ...(p.kind === "Member" ? ["Surveys & Outcomes"] : []),
           "Programmes",
           "Alerts",
           "History",
@@ -180,6 +194,14 @@ export default function Profile({
         ))}
       </div>
       <section className="panel">
+        {tab === "Surveys & Outcomes" && p.kind === "Member" && (
+          <Surveys
+            personId={p.id}
+            write={write}
+            manager={manager}
+            revision={revision}
+          />
+        )}
         {tab === "Follow-up History" && (
           <>
             <h3>Completed grant and referral follow-ups</h3>
@@ -259,7 +281,8 @@ export default function Profile({
             {p.assessments.length ? (
               p.assessments.map((a) => (
                 <p key={a.id}>
-                  {a.type}: {a.value} · Assessed:{" "}
+                  {a.type === "ZBI" ? "Existing ZBI Assessment (0?88)" : a.type}
+                  : {a.value} · Assessed:{" "}
                   {a.assessedAt ? day(a.assessedAt) : "date not recorded"} ·
                   Recorded: {day(a.recordedAt)}
                 </p>
@@ -471,6 +494,41 @@ export default function Profile({
           <>
             <h3>Remarks</h3>
             <p className="preserve">{p.remarks || "No notes recorded."}</p>
+            {write &&
+              p.kind === "Member" &&
+              grantDatesFromNotes(p.remarks).length > 0 && (
+                <section className="notice">
+                  <h3>Application dates suggested from remarks</h3>
+                  <p>
+                    Verify each date and scheme in the grant form before saving.
+                    Existing applications are retained.
+                  </p>
+                  {grantDatesFromNotes(p.remarks).map((s) => {
+                    const existing = relatedGrants.some(
+                      (g) =>
+                        g.scheme.name
+                          .toLowerCase()
+                          .replace(/[^a-z0-9]/g, "") ===
+                        s.scheme.toLowerCase().replace(/[^a-z0-9]/g, ""),
+                    );
+                    return (
+                      <p key={s.scheme + s.applicationDate}>
+                        <strong>{s.scheme}</strong> applied {s.applicationDate}.
+                        Suggested follow-up {s.followUp}.{" "}
+                        <button
+                          className="secondary"
+                          disabled={existing}
+                          onClick={() => grant(undefined, p.id, s)}
+                        >
+                          {existing
+                            ? "Already tracked ? review existing application"
+                            : "Review proposed application"}
+                        </button>
+                      </p>
+                    );
+                  })}
+                </section>
+              )}
             {p.rawImport && (
               <details>
                 <summary>Original imported cells</summary>
