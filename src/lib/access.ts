@@ -125,17 +125,26 @@ export async function validateAssignment(
     throw new Error("Assigned staff must have access to the record centre.");
 }
 
+<<<<<<< HEAD
 export function surveyScope(
   u: AccessUser,
   includeTrashed = false,
 ): Prisma.SurveyResponseWhereInput {
+=======
+export function surveyScope(u: AccessUser): Prisma.SurveyResponseWhereInput {
+  if (unrestricted(u)) return {};
+>>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
   return {
     AND: [
       unrestricted(u)
         ? {}
         : { centre: { in: u.allowedCentres.map((c) => c.centre) } },
+<<<<<<< HEAD
       { OR: [{ personId: null }, { person: personScope(u, includeTrashed) }] },
       ...(includeTrashed ? [] : [{ deletedAt: null }]),
+=======
+      { OR: [{ personId: null }, { person: personScope(u) }] },
+>>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
     ],
   };
 }

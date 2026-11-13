@@ -60,7 +60,10 @@ const dateLabel = (value: Date | string | null) =>
 const displayScore = (n: number | null) =>
   n === null ? "Incomplete" : n.toFixed(2).replace(/\.00$/, "");
 
+<<<<<<< HEAD
 import { TrashButton } from "./trash";
+=======
+>>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
 export default function Surveys({
   write,
   manager,
@@ -528,6 +531,7 @@ export default function Surveys({
                           ? `${r.warnings.length} warnings`
                           : "Complete responses"}
                       </Badge>,
+<<<<<<< HEAD
                       <div className="row-actions" key="open">
                         <button
                           className="secondary"
@@ -545,6 +549,17 @@ export default function Surveys({
                           />
                         )}
                       </div>,
+=======
+                      <button
+                        className="secondary"
+                        key="open"
+                        onClick={() => setSelected(r.id)}
+                      >
+                        {write && !r.personId
+                          ? "Review identity"
+                          : "View survey"}
+                      </button>,
+>>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
                     ],
                   }))}
                   server={{

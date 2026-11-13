@@ -53,6 +53,7 @@ const Programmes = dynamic(() => import("./programmes"), {
 });
 import { sourceFields } from "@/lib/programme-source";
 import Profile from "./profile";
+<<<<<<< HEAD
 const Trash = dynamic(() => import("./trash"), {
   loading: () => (
     <p className="inline-progress" role="status">
@@ -60,6 +61,8 @@ const Trash = dynamic(() => import("./trash"), {
     </p>
   ),
 });
+=======
+>>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
 const Surveys = dynamic(() => import("./surveys"), {
   loading: () => <p role="status">Opening surveys...</p>,
 });
@@ -951,6 +954,7 @@ export default function DashboardApp({
                     onChanged={() => invalidate("survey")}
                   />
                 )}
+<<<<<<< HEAD
                 {section === "trash" && (
                   <Trash
                     revision={revision}
@@ -960,6 +964,8 @@ export default function DashboardApp({
                     }}
                   />
                 )}
+=======
+>>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
                 {section === "my-work" && (
                   <MyWork
                     d={data}
@@ -976,11 +982,14 @@ export default function DashboardApp({
                     revision={revision}
                     kind={section === "members" ? "Member" : "Care Recipient"}
                     write={write}
+<<<<<<< HEAD
                     manager={can(u.role, "audit")}
                     onChanged={() => {
                       invalidate("person");
                       return load(true);
                     }}
+=======
+>>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
                     onEdit={(p, kind) => {
                       if (!p) {
                         personEditor(undefined, kind);
@@ -1027,6 +1036,7 @@ export default function DashboardApp({
                     write={write}
                     onEdit={personEditor}
                     manager={can(u.role, "audit")}
+<<<<<<< HEAD
                     onTrashed={() => {
                       invalidate("person");
                       router.push(
@@ -1036,6 +1046,8 @@ export default function DashboardApp({
                           : "/members",
                       );
                     }}
+=======
+>>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
                     revision={revision}
                     grant={grantEditor}
                     alert={createAlert}
@@ -1306,7 +1318,10 @@ export default function DashboardApp({
                   "care-recipients",
                   "people",
                   "surveys",
+<<<<<<< HEAD
                   "trash",
+=======
+>>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
                   "programmes",
                   "matching",
                   "grants",

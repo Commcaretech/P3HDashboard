@@ -1252,6 +1252,7 @@ td small { display:block; color:var(--muted); font-size:12px; margin-top:4px; }
  .survey-workspace td:first-child, .survey-workspace td:last-child { grid-column: 1 / -1; }
  .survey-workspace td::before { content: attr(data-label); display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
 }
+<<<<<<< HEAD
 
 .trash-workspace { display: grid; gap: 1rem; min-width: 0; }
 .trash-preview { display: grid; gap: .8rem; min-width: 0; }
@@ -1265,3 +1266,5 @@ td small { display:block; color:var(--muted); font-size:12px; margin-top:4px; }
  .trash-workspace td:first-child, .trash-workspace td:last-child { grid-column: 1 / -1; }
  .trash-workspace td::before { content: attr(data-label); display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
 }
+=======
+>>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
