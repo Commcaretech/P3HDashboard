@@ -128,7 +128,7 @@ export async function reportData(u: AccessUser, f: Record<string, string>) {
     rows = group(
       (
         await db.grantApplication.findMany({
-          where: { personId: { in: ids }, person: scope },
+          where: { deletedAt: null, personId: { in: ids }, person: scope },
           select: { status: true },
         })
       ).map((g) => g.status),

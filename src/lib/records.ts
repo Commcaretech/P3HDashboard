@@ -74,6 +74,8 @@ export async function savePerson(
         include: personInclude,
       })
     : null;
+  if (existing?.deletedAt)
+    throw new Error("Restore this record from Trash before editing.");
   const original = existing
     ? {
         ...existing,
@@ -118,6 +120,8 @@ export async function savePerson(
   const before = id
     ? await tx.person.findUnique({ where: { id }, include: personInclude })
     : null;
+  if (before?.deletedAt)
+    throw new Error("Restore this record from Trash before editing.");
   if (id && !before) throw new Error("Record not found");
   if (before && version && before.updatedAt.toISOString() !== version)
     throw new Error(
@@ -327,6 +331,8 @@ export async function saveProgramme(
   }
   const { languages, interests, conditions, ...data } = v;
   const before = id ? await tx.programme.findUnique({ where: { id } }) : null;
+  if (before?.deletedAt)
+    throw new Error("Restore this record from Trash before editing.");
   if (id && !before) throw new Error("Record not found");
   if (before && version && before.updatedAt.toISOString() !== version)
     throw new Error(

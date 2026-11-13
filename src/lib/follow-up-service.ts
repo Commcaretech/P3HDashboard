@@ -35,7 +35,7 @@ export async function completeFollowUp(
   if (!a.grantId || a.type !== "Grant review")
     throw new Error("Choose a grant follow-up task.");
   const g = await tx.grantApplication.findUniqueOrThrow({
-    where: { id: a.grantId },
+    where: { deletedAt: null, id: a.grantId },
   });
   const p = await requirePersonAccess(tx, u, g.personId);
   const existing = await tx.followUp.findUnique({ where: { alertId: id } });

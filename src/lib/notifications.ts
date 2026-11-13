@@ -31,6 +31,7 @@ export async function dueItems(userId: string, date: string) {
         { assignedId: null, person: { assignedId: u.id } },
       ],
       AND: [
+        { OR: [{ grantId: null }, { grant: { deletedAt: null } }] },
         {
           OR: [
             { personId: null },

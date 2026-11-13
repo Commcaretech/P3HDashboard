@@ -6,16 +6,19 @@ import { Data, Grant, label, day } from "@/lib/types";
 import { Table, Badge, PersonLink } from "./ui";
 import { useFilters, FilterBar } from "./common";
 import SupportExtraction from "./support-extraction";
+import { TrashButton } from "./trash";
 export default function Grants({
   d: baseData,
   revision = 0,
   write,
+  manager = false,
   onEdit,
   onSaved,
 }: {
   d: Data;
   revision?: number;
   write: boolean;
+  manager?: boolean;
   onEdit: (g?: Grant) => void;
   onSaved: () => Promise<void>;
 }) {
@@ -206,13 +209,14 @@ export default function Grants({
               d.people.find((p) => p.id === g.personId)?.assigned?.name ??
               "Unassigned",
             write ? (
-              <button
-                key="edit"
-                className="secondary"
-                onClick={() => onEdit(g)}
-              >
-                Edit
-              </button>
+              <div key="edit" className="row-actions">
+                <button className="secondary" onClick={() => onEdit(g)}>
+                  Edit
+                </button>
+                {manager && (
+                  <TrashButton type="grant" id={g.id} onChanged={onSaved} />
+                )}
+              </div>
             ) : (
               "View only"
             ),

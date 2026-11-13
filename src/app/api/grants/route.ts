@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
         ],
       });
     const all = await db.grantApplication.findMany({
-        where: { person: personScope(u) },
+        where: { deletedAt: null, person: personScope(u) },
         select: {
           id: true,
           status: true,
@@ -77,7 +77,7 @@ export async function GET(req: NextRequest) {
             .map((g) => g.id),
         },
       });
-    const where = { AND: and },
+    const where = { AND: [{ deletedAt: null }, ...and] },
       total = await db.grantApplication.count({ where }),
       size = [20, 50, 100].includes(Number(f.size)) ? Number(f.size) : 20,
       page = Math.max(

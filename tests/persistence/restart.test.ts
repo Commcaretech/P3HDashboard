@@ -38,6 +38,49 @@ test(
         name: "Fictional Persistent Record",
       },
     });
+    const person = await db.person.findUniqueOrThrow({
+      where: { memberId: "PERSISTENCE-FAKE" },
+    });
+    const staff = await db.user.findUniqueOrThrow({
+      where: { username: "restart.fake" },
+    });
+    const batch = await db.surveyImportBatch.create({
+      data: {
+        filename: "fictional-survey.csv",
+        language: "English",
+        centre: "",
+        uploadedBy: staff.id,
+        summary: { saved: 1 },
+      },
+    });
+    await db.surveyResponse.create({
+      data: {
+        batchId: batch.id,
+        sourceKey: "restart-survey",
+        contentHash: "fictional-source",
+        rowNumber: 2,
+        centre: "",
+        language: "English",
+        submittedName: "Fictional",
+        cleanedName: "Fictional",
+        timestampText: "2026-11-13",
+        surveyDate: new Date("2026-11-13"),
+        phase: "Baseline",
+        personId: person.id,
+        confirmedMemberId: person.memberId,
+        matchStatus: "Linked",
+        rawAnswers: { Q1: "3" },
+        answers: { Q1: "3" },
+        method: "P3H_WHOQOL_ZBI6_v1_complete_domains",
+        warnings: [],
+        physical: 50,
+        psychological: 50,
+        social: 50,
+        environment: 50,
+        overall: 50,
+        zbi: 12,
+      },
+    });
     await db.$disconnect();
     const reservation = createServer();
     await new Promise<void>((r) => reservation.listen(0, "127.0.0.1", r));
@@ -110,6 +153,14 @@ test(
       snapshot = await read.json();
       assert.equal(snapshot.people.length, 1);
       assert.equal(snapshot.people[0].name, "Fictional Persistent Record");
+      const surveys = await (
+        await fetch(origin + "/api/surveys?view=records", {
+          headers: { Cookie: cookie },
+        })
+      ).json();
+      assert.equal(surveys.total, 1);
+      assert.equal(surveys.rows[0].confirmedMemberId, "PERSISTENCE-FAKE");
+      assert.equal(surveys.rows[0].zbi, 12);
     } finally {
       await stop();
     }

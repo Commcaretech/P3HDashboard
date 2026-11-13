@@ -100,7 +100,12 @@ test("centre rules retain admin access and deny unrelated or blank person centre
     true,
   );
   assert.notDeepEqual(personScope(staff), {});
-  assert.deepEqual(personScope({ ...staff, role: "Admin" }), {});
+  assert.equal(
+    JSON.stringify(personScope({ ...staff, role: "Admin" })).includes(
+      '"centre"',
+    ),
+    false,
+  );
   assert.notDeepEqual(programmeScope(staff), {});
 });
 test("bulk review never updates an existing record without selection", () => {

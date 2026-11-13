@@ -65,6 +65,7 @@ type SyncInfo = {
     } | null;
   }[];
 };
+import { TrashButton } from "./trash";
 export default function Programmes({
   write,
   onEdit,
@@ -632,6 +633,13 @@ export default function Programmes({
                 </div>,
                 <Badge key="registration">{p.registrationStatus}</Badge>,
                 <div className="row-actions" key="actions">
+                  {["Admin", "Manager"].includes(user.role) && (
+                    <TrashButton
+                      type="programme"
+                      id={p.id}
+                      onChanged={refresh}
+                    />
+                  )}
                   {p.external ? (
                     <>
                       {write && (

@@ -9,31 +9,67 @@ export const unrestricted = (u: AccessUser) =>
   u.role === "Admin" || u.allCentres;
 export const centreAllowed = (u: AccessUser, centre: string) =>
   unrestricted(u) || u.allowedCentres.some((c) => c.centre === centre.trim());
-export function personScope(u: AccessUser): Prisma.PersonWhereInput {
-  if (unrestricted(u)) return {};
-  const centres = u.allowedCentres.map((c) => c.centre);
+export function personScope(
+  u: AccessUser,
+  includeTrashed = false,
+): Prisma.PersonWhereInput {
+  const scope: Prisma.PersonWhereInput = unrestricted(u)
+    ? {}
+    : {
+        OR: [
+          { centre: { in: u.allowedCentres.map((c) => c.centre) } },
+          {
+            kind: "Care Recipient",
+            centre: "",
+            recipientLinks: {
+              some: {
+                member: {
+                  centre: { in: u.allowedCentres.map((c) => c.centre) },
+                },
+              },
+            },
+          },
+        ],
+      };
+  return { AND: [scope, ...(includeTrashed ? [] : [{ deletedAt: null }])] };
+}
+export function programmeScope(
+  u: AccessUser,
+  includeTrashed = false,
+): Prisma.ProgrammeWhereInput {
   return {
-    OR: [
-      { centre: { in: centres } },
-      {
-        kind: "Care Recipient",
-        centre: "",
-        recipientLinks: { some: { member: { centre: { in: centres } } } },
-      },
+    AND: [
+      unrestricted(u)
+        ? {}
+        : { centre: { in: ["", ...u.allowedCentres.map((c) => c.centre)] } },
+      ...(includeTrashed ? [] : [{ deletedAt: null }]),
     ],
   };
 }
-export function programmeScope(u: AccessUser): Prisma.ProgrammeWhereInput {
-  return unrestricted(u)
-    ? {}
-    : { centre: { in: ["", ...u.allowedCentres.map((c) => c.centre)] } };
+export function grantScope(
+  u: AccessUser,
+  includeTrashed = false,
+): Prisma.GrantApplicationWhereInput {
+  return {
+    person: personScope(u, includeTrashed),
+    ...(includeTrashed ? {} : { deletedAt: null }),
+  };
 }
 export function alertScope(u: AccessUser): Prisma.AlertWhereInput {
-  return unrestricted(u)
-    ? {}
-    : {
-        OR: [{ person: personScope(u) }, { personId: null, assignedId: u.id }],
-      };
+  return {
+    AND: [
+      { OR: [{ personId: null }, { person: personScope(u) }] },
+      { OR: [{ grantId: null }, { grant: { deletedAt: null } }] },
+      unrestricted(u)
+        ? {}
+        : {
+            OR: [
+              { person: personScope(u) },
+              { personId: null, assignedId: u.id },
+            ],
+          },
+    ],
+  };
 }
 export async function requirePersonAccess(
   tx: Prisma.TransactionClient,
@@ -87,4 +123,19 @@ export async function validateAssignment(
     (!unrestricted(u) && !centreAllowed(u, centre))
   )
     throw new Error("Assigned staff must have access to the record centre.");
+}
+
+export function surveyScope(
+  u: AccessUser,
+  includeTrashed = false,
+): Prisma.SurveyResponseWhereInput {
+  return {
+    AND: [
+      unrestricted(u)
+        ? {}
+        : { centre: { in: u.allowedCentres.map((c) => c.centre) } },
+      { OR: [{ personId: null }, { person: personScope(u, includeTrashed) }] },
+      ...(includeTrashed ? [] : [{ deletedAt: null }]),
+    ],
+  };
 }

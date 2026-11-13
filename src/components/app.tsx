@@ -53,6 +53,16 @@ const Programmes = dynamic(() => import("./programmes"), {
 });
 import { sourceFields } from "@/lib/programme-source";
 import Profile from "./profile";
+const Trash = dynamic(() => import("./trash"), {
+  loading: () => (
+    <p className="inline-progress" role="status">
+      Opening Trash...
+    </p>
+  ),
+});
+const Surveys = dynamic(() => import("./surveys"), {
+  loading: () => <p role="status">Opening surveys...</p>,
+});
 import People from "./people";
 const Overview = dynamic(() => import("./overview"), {
   loading: () => (
@@ -116,12 +126,14 @@ const nav = [
   ["members", "Caregivers", Users],
   ["care-recipients", "Care Recipients", HeartHandshake],
   ["grants", "Grants & Referrals", HandCoins],
+  ["surveys", "Surveys & Outcomes", ChartNoAxesCombined],
   ["programmes", "Programmes", CalendarDays],
   ["matching", "Programme Matching", ScanSearch],
   ["alerts", "Alerts", Bell],
   ["import", "Import Data", Upload],
   ["reports", "Reports", ChartNoAxesCombined],
   ["audit", "Audit Log", History],
+  ["trash", "Trash", History],
   ["settings", "Settings", Settings],
 ] as const;
 type User = { id: string; name: string; role: string; accessKey: string };
@@ -242,7 +254,11 @@ export default function DashboardApp({
             ? "people"
             : target.section;
           cache.invalidate(
-            (k) => k === key || k.startsWith(`resource:${family}`) || (target.section === "dashboard" && k.startsWith("resource:birthdays:")),
+            (k) =>
+              k === key ||
+              k.startsWith(`resource:${family}`) ||
+              (target.section === "dashboard" &&
+                k.startsWith("resource:birthdays:")),
           );
           setRevision((v) => v + 1);
         }
@@ -478,7 +494,7 @@ export default function DashboardApp({
         ? "Person profile"
         : (nav.find((n) => n[0] === section)?.[1] ?? "Search");
   const restricted =
-    (section === "audit" && !can(u.role, "audit")) ||
+    (["audit", "trash"].includes(section) && !can(u.role, "audit")) ||
     (section === "import" && !write);
   const personEditor = (p?: Person, kind = "Member") =>
     setEdit({
@@ -599,7 +615,11 @@ export default function DashboardApp({
       id: p?.id,
       version: p?.updatedAt,
     });
-  const grantEditor = async (g?: Grant, personId?: string) => {
+  const grantEditor = async (
+    g?: Grant,
+    personId?: string,
+    suggestion?: { scheme: string; applicationDate: string; source: string },
+  ) => {
     setPreparing(true);
     try {
       const formData = await options();
@@ -613,11 +633,20 @@ export default function DashboardApp({
               personId: personId ?? "",
               followUpFrequency: "Automatic",
               resolution: "Open",
+              ...(suggestion
+                ? {
+                    schemeId:
+                      formData.schemes.find((s) => s.name === suggestion.scheme)
+                        ?.id || "",
+                    applicationDate: suggestion.applicationDate,
+                    notes: `Proposed from remarks. Verify before saving: ${suggestion.source}`,
+                  }
+                : {}),
             },
         action: "grant",
         id: g?.id,
         version: g?.updatedAt,
-        confirm: Boolean(g),
+        confirm: Boolean(g || suggestion),
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to open form");
@@ -695,7 +724,8 @@ export default function DashboardApp({
             {nav
               .filter(
                 (n) =>
-                  (n[0] !== "audit" || can(u.role, "audit")) &&
+                  (!["audit", "trash"].includes(n[0]) ||
+                    can(u.role, "audit")) &&
                   (n[0] !== "import" || write),
               )
               .map(([key, name, Icon]) => (
@@ -882,6 +912,12 @@ export default function DashboardApp({
                           <button onClick={() => personEditor()}>
                             Add Caregiver
                           </button>
+                          <Link
+                            className="secondary link-button"
+                            href="/surveys?view=import"
+                          >
+                            Import Survey
+                          </Link>
                           <button
                             className="secondary"
                             onClick={() => grantEditor()}
@@ -907,6 +943,23 @@ export default function DashboardApp({
                     />
                   </>
                 )}
+                {section === "surveys" && (
+                  <Surveys
+                    write={write}
+                    manager={can(u.role, "audit")}
+                    revision={revision}
+                    onChanged={() => invalidate("survey")}
+                  />
+                )}
+                {section === "trash" && (
+                  <Trash
+                    revision={revision}
+                    onChanged={() => {
+                      invalidate("person");
+                      return load(true);
+                    }}
+                  />
+                )}
                 {section === "my-work" && (
                   <MyWork
                     d={data}
@@ -923,7 +976,39 @@ export default function DashboardApp({
                     revision={revision}
                     kind={section === "members" ? "Member" : "Care Recipient"}
                     write={write}
-                    onEdit={personEditor}
+                    manager={can(u.role, "audit")}
+                    onChanged={() => {
+                      invalidate("person");
+                      return load(true);
+                    }}
+                    onEdit={(p, kind) => {
+                      if (!p) {
+                        personEditor(undefined, kind);
+                        return;
+                      }
+                      setPreparing(true);
+                      void request(
+                        `/api/data?section=people&id=${encodeURIComponent(p.id)}`,
+                      )
+                        .then((detail: Data) => {
+                          const full = detail.people.find(
+                            (row) => row.id === p.id,
+                          );
+                          if (!full)
+                            throw new Error(
+                              "Record is no longer available. Refresh the directory.",
+                            );
+                          personEditor(full);
+                        })
+                        .catch((e) =>
+                          setError(
+                            e instanceof Error
+                              ? e.message
+                              : "Cannot open caregiver",
+                          ),
+                        )
+                        .finally(() => setPreparing(false));
+                    }}
                     onArchive={(p) => {
                       if (
                         window.confirm(
@@ -941,6 +1026,17 @@ export default function DashboardApp({
                     id={recordId ?? ""}
                     write={write}
                     onEdit={personEditor}
+                    manager={can(u.role, "audit")}
+                    onTrashed={() => {
+                      invalidate("person");
+                      router.push(
+                        data.people.find((p) => p.id === recordId)?.kind ===
+                          "Care Recipient"
+                          ? "/care-recipients"
+                          : "/members",
+                      );
+                    }}
+                    revision={revision}
                     grant={grantEditor}
                     alert={createAlert}
                     edit={(e) => void openEditor(e)}
@@ -971,6 +1067,7 @@ export default function DashboardApp({
                     revision={revision}
                     d={data}
                     write={write}
+                    manager={can(u.role, "audit")}
                     onEdit={grantEditor}
                     onSaved={() => {
                       invalidate("grant");
@@ -1208,6 +1305,8 @@ export default function DashboardApp({
                   "members",
                   "care-recipients",
                   "people",
+                  "surveys",
+                  "trash",
                   "programmes",
                   "matching",
                   "grants",

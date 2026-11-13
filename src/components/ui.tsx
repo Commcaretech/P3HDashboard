@@ -467,10 +467,12 @@ export function Table({
   headers,
   rows,
   server,
+  hidePagination = false,
 }: {
   headers: string[];
   rows: Row[];
   server?: ServerTable;
+  hidePagination?: boolean;
 }) {
   const [page, setPage] = useState(1),
     [size, setSize] = useState(20),
@@ -555,47 +557,49 @@ export function Table({
           </div>
         )}
       </div>
-      <div className="pagination">
-        <span>
-          {total} results · Page {active} of {pages}
-        </span>
-        <label>
-          Rows per page
-          <select
-            aria-label="Rows per page"
-            value={effectiveSize}
-            onChange={(e) => {
-              setSize(Number(e.target.value));
-              setPage(1);
-              server?.onSize(Number(e.target.value));
-            }}
-          >
-            {[20, 50, 100].map((n) => (
-              <option key={n}>{n}</option>
-            ))}
-          </select>
-        </label>
-        <div>
-          <button
-            className="secondary"
-            disabled={active === 1}
-            onClick={() =>
-              server ? server.onPage(active - 1) : setPage(active - 1)
-            }
-          >
-            Previous
-          </button>{" "}
-          <button
-            className="secondary"
-            disabled={active === pages}
-            onClick={() =>
-              server ? server.onPage(active + 1) : setPage(active + 1)
-            }
-          >
-            Next
-          </button>
+      {!hidePagination && (
+        <div className="pagination">
+          <span>
+            {total} results · Page {active} of {pages}
+          </span>
+          <label>
+            Rows per page
+            <select
+              aria-label="Rows per page"
+              value={effectiveSize}
+              onChange={(e) => {
+                setSize(Number(e.target.value));
+                setPage(1);
+                server?.onSize(Number(e.target.value));
+              }}
+            >
+              {[20, 50, 100].map((n) => (
+                <option key={n}>{n}</option>
+              ))}
+            </select>
+          </label>
+          <div>
+            <button
+              className="secondary"
+              disabled={active === 1}
+              onClick={() =>
+                server ? server.onPage(active - 1) : setPage(active - 1)
+              }
+            >
+              Previous
+            </button>{" "}
+            <button
+              className="secondary"
+              disabled={active === pages}
+              onClick={() =>
+                server ? server.onPage(active + 1) : setPage(active + 1)
+              }
+            >
+              Next
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </>
   );
 }

@@ -5,12 +5,15 @@ import { useEffect, useState } from "react";
 import { Data, Person, label } from "@/lib/types";
 import { Table, Badge, PersonLink, ActionMenu } from "./ui";
 import { useFilters, FilterBar, names, request } from "./common";
+import { TrashButton } from "./trash";
 export default function People({
   d,
   kind,
   write,
   onEdit,
   onArchive,
+  manager = false,
+  onChanged = () => {},
   revision = 0,
 }: {
   d: Data;
@@ -19,6 +22,8 @@ export default function People({
   write: boolean;
   onEdit: (p?: Person, kind?: string) => void;
   onArchive: (p: Person) => void;
+  manager?: boolean;
+  onChanged?: () => void | Promise<void>;
 }) {
   const [f, setF] = useFilters();
   const cache = useWorkspaceCache();
@@ -249,6 +254,9 @@ export default function People({
                 <button className="secondary" onClick={() => onEdit(p)}>
                   Edit
                 </button>
+                {manager && (
+                  <TrashButton type="person" id={p.id} onChanged={onChanged} />
+                )}
                 {p.status !== "Archived" && (
                   <button className="secondary" onClick={() => onArchive(p)}>
                     Archive

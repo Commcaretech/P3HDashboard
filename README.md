@@ -2,6 +2,16 @@
 
 An internal staff workspace for caregiver/member records, separate linked care recipients, Excel imports, programme matching, grants, reminders and caseload reporting. The default local configuration stores records in SQLite on the hosting computer. An optional Render + Supabase PostgreSQL configuration is now available; in that mode, records and uploads are processed by those hosting providers. No analytics, AI service or remote fonts are used. Optional staff reminder emails use an explicitly configured HTTPS provider.
 
+## Trash and Restore
+
+Admin and Manager accounts can use **Move to Trash** on caregivers, recipients, grants, programmes and survey responses, then recover them through **Trash**. Linked history is retained. See [Trash and Restore](docs/trash-and-restore.md). Upgrade with the additive `202611130002_record_trash` migration after a protected backup and rehearsal; nothing is permanently erased.
+
+## Surveys & Outcomes
+
+The staff workspace includes previewed multilingual CSV imports, P3H WHOQOL scoring, a separate six-item ZBI survey, unmatched identity review, verified aliases, caregiver survey history and permission-scoped exports. Read the [survey staff guide](docs/surveys-staff-guide.md) and [implementation, methodology and deployment report](docs/surveys-outcomes.md).
+
+Upgrade with the additive `202611130001_surveys_outcomes` migration after a verified backup and isolated rehearsal. Use the existing local or cloud migration commands for the intended database. No operational data or real survey responses are imported by development tests. The complete-domain scoring policy is provisional pending P3H approval.
+
 ## Updated staff workflows
 
 See [the staff workflow guide](docs/staff-workflows.md) for case assignment, My Tasks, profile completeness, snoozing, import comparisons/history and centre permissions. Update an existing installation with `npm.cmd run db:generate`, `npm.cmd run db:migrate`, then rebuild or restart development. Back up first with `npm.cmd run backup`. No reset or seed is required. Existing accounts retain their prior centre access until an administrator reviews it in Settings.
@@ -68,12 +78,12 @@ Only `.xlsx` is accepted; convert older `.xls` in Excel first. Limits: 10 MB com
 
 ## Roles and authentication
 
-| Role | Permissions |
-| --- | --- |
-| Admin | Operational editing, imports, audit review, creation of staff accounts |
-| Manager | Operational editing, imports, audit review |
-| Staff | Operational editing and imports |
-| Read Only | View operational records and reports; no writes/imports/audit access |
+| Role      | Permissions                                                            |
+| --------- | ---------------------------------------------------------------------- |
+| Admin     | Operational editing, imports, audit review, creation of staff accounts |
+| Manager   | Operational editing, imports, audit review                             |
+| Staff     | Operational editing and imports                                        |
+| Read Only | View operational records and reports; no writes/imports/audit access   |
 
 Admin creates additional accounts in Settings. Server routes enforce permissions independently of navigation/buttons. Passwords use salted scrypt hashes. Sessions use cryptographically random tokens, store only token hashes in the database, expire after eight hours and use HttpOnly/SameSite Strict cookies. Five unsuccessful login attempts lock a username for 15 minutes. Mutations verify the same-origin Origin header. Profile/programme/grant edits carry a last-updated version to detect another staff member's intervening changes.
 
@@ -81,13 +91,13 @@ Admin creates additional accounts in Settings. Server routes enforce permissions
 
 Deterministic rules in `src/lib/domain.ts` award these weights once per dimension when at least one recorded category overlaps:
 
-| Dimension | Weight |
-| --- | --- |
-| Care recipient condition | 35% |
-| Language | 25% |
-| Member interest | 15% |
-| Care recipient interest | 15% |
-| Care recipient mobility | 10% |
+| Dimension                | Weight |
+| ------------------------ | ------ |
+| Care recipient condition | 35%    |
+| Language                 | 25%    |
+| Member interest          | 15%    |
+| Care recipient interest  | 15%    |
+| Care recipient mobility  | 10%    |
 
 Care-recipient languages take precedence when available, otherwise member languages are used. Recorded spoken/understood/preferred languages are considered. Mobility requires an exact recorded level or a programme explicitly marked All. Missing fields earn zero points; scores are not renormalised. Every result explains all five dimensions, including missing data and unmatched categories. Filters narrow centre, language, category, day, venue and open available capacity. Matching assists staff review and does not establish clinical suitability or a reservation.
 
@@ -147,7 +157,6 @@ Complete first-run setup on the host's loopback address **before** permitting ne
 Set `APP_ORIGIN` to the exact internal HTTPS origin when using a reverse proxy, and `COOKIE_SECURE=true`. The hosting device must use operating-system disk encryption, appropriate folder/account access controls, controlled backups and organisational retention policies. SQLite itself is not encrypted by this application. All authenticated staff can view operational records; row-specific case assignment restrictions are not implemented. Avoid public hosting or placing the database/backups in cloud-sync folders. Do not use production personal data while running development tools or collecting diagnostics.
 
 People lists use server pagination; the dashboard uses a minimal projection and scoped aggregate counts. Other profile/report workflows still use authorised snapshots and should be load-tested for a much larger caseload. Optional staff email digests run through an external scheduler even when nobody is signed in. There is no resident background timer. Real hosting availability, PostgreSQL migrations, provider acceptance and inbox delivery require deployment rehearsal. See docs/automatic-reminders.md for configuration and monitoring.
-
 
 ## Extract support from member notes
 

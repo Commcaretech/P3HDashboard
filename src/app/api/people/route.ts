@@ -2,9 +2,9 @@ import { searchText } from "@/lib/query";
 import { privateHeaders } from "@/lib/permission-key";
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { db, personInclude } from "@/lib/db";
+import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { personScope, programmeScope } from "@/lib/access";
+import { personScope } from "@/lib/access";
 import { errorResponse } from "@/lib/http";
 export async function GET(req: NextRequest) {
   try {
@@ -24,6 +24,15 @@ export async function GET(req: NextRequest) {
           { name: searchText(q) },
           { memberId: searchText(q) },
           { alias: searchText(q) },
+          { contactNumber: searchText(q) },
+          {
+            verifiedAliases: {
+              some: {
+                verified: true,
+                normalized: searchText(q.toLowerCase().trim()),
+              },
+            },
+          },
           { remarks: searchText(q) },
           { tags: searchText(q) },
           { conditions: { some: { condition: { name: searchText(q) } } } },
@@ -115,9 +124,20 @@ export async function GET(req: NextRequest) {
           { memberId: "asc" },
           { id: "asc" },
         ],
-        omit: { rawImport: true },
-        include: {
-          ...personInclude,
+        select: {
+          id: true,
+          kind: true,
+          memberId: true,
+          name: true,
+          alias: true,
+          contactNumber: true,
+          centre: true,
+          preferredLanguage: true,
+          status: true,
+          assignedId: true,
+          updatedAt: true,
+          languages: { include: { language: true } },
+          conditions: { include: { condition: true } },
           assigned: { select: { name: true } },
           caregiverLinks: {
             where: { recipient: personScope(u) },
@@ -141,14 +161,15 @@ export async function GET(req: NextRequest) {
               },
             },
           },
-          participations: {
-            where: { programme: programmeScope(u) },
-            include: { programme: { select: { name: true } } },
-          },
           alerts: {
             where: { status: "Pending" },
             orderBy: { dueDate: "asc" },
-            include: { assigned: { select: { name: true } } },
+            select: {
+              id: true,
+              title: true,
+              dueDate: true,
+              snoozedUntil: true,
+            },
           },
         },
       }),
@@ -205,7 +226,13 @@ export async function GET(req: NextRequest) {
     ]);
     return NextResponse.json(
       {
-        people: people.map((p) => ({ ...p, rawImport: null })),
+        people: people.map((p) => ({
+          ...p,
+          interests: [],
+          assessments: [],
+          participations: [],
+          rawImport: null,
+        })),
         total,
         page: activePage,
         size,

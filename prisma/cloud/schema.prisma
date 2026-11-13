@@ -38,6 +38,11 @@ model Session {
  @@index([expiresAt])
 }
 model Person {
+ deletedAt DateTime?
+ deletedBy String?
+ @@index([deletedAt])
+ surveyResponses SurveyResponse[]
+ verifiedAliases PersonAlias[]
  id String @id @default(cuid())
  kind String
  memberId String? @unique
@@ -146,6 +151,9 @@ model Assessment {
  @@index([personId])
 }
 model Programme {
+ deletedAt DateTime?
+ deletedBy String?
+ @@index([deletedAt])
  interestTagsReviewed Boolean @default(false)
  review ProgrammeReview?
  external ExternalProgramme?
@@ -209,6 +217,9 @@ model SupportScheme {
  applications GrantApplication[]
 }
 model GrantApplication {
+ deletedAt DateTime?
+ deletedBy String?
+ @@index([deletedAt])
  id String @id @default(cuid())
  schemeId String
  scheme SupportScheme @relation(fields:[schemeId],references:[id])
@@ -426,4 +437,85 @@ model MaintenanceState {
  lastCompletedAt DateTime?
  leaseUntil DateTime?
  leaseToken String?
+}
+
+model SurveyImportBatch {
+ id String @id @default(cuid())
+ filename String
+ language String
+ centre String
+ uploadedBy String
+ createdAt DateTime @default(now())
+ status String @default("Completed")
+ summary Json
+ responses SurveyResponse[]
+ @@index([centre,createdAt])
+}
+model SurveyResponse {
+ deletedAt DateTime?
+ deletedBy String?
+ @@index([deletedAt])
+ id String @id @default(cuid())
+ batchId String
+ batch SurveyImportBatch @relation(fields:[batchId],references:[id])
+ sourceKey String @unique
+ contentHash String
+ sourceResponseId String @default("")
+ rowNumber Int
+ centre String
+ language String
+ submittedName String
+ cleanedName String
+ timestampText String
+ surveyDate DateTime?
+ dobText String @default("")
+ dob DateTime?
+ phaseText String @default("")
+ phase String @default("Needs Review")
+ personId String?
+ person Person? @relation(fields:[personId],references:[id])
+ confirmedMemberId String?
+ matchStatus String @default("Unmatched")
+ rawAnswers Json
+ answers Json
+ method String
+ warnings Json
+ physical Float?
+ psychological Float?
+ social Float?
+ environment Float?
+ overall Float?
+ zbi Int?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ reviews SurveyIdentityReview[]
+ @@index([centre,matchStatus,surveyDate])
+ @@index([personId,method,surveyDate])
+}
+model SurveyIdentityReview {
+ id String @id @default(cuid())
+ responseId String
+ response SurveyResponse @relation(fields:[responseId],references:[id])
+ personId String?
+ memberId String?
+ action String
+ method String @default("Staff confirmation")
+ reviewedBy String
+ reviewedAt DateTime @default(now())
+ notes String @default("")
+ @@index([responseId,reviewedAt])
+}
+model PersonAlias {
+ id String @id @default(cuid())
+ personId String
+ person Person @relation(fields:[personId],references:[id])
+ text String
+ normalized String
+ verified Boolean @default(true)
+ verifiedBy String
+ verifiedAt DateTime @default(now())
+ source String @default("Staff verification")
+ createdAt DateTime @default(now())
+ @@unique([personId,normalized])
+ @@index([normalized,verified])
 }

@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
         tableOnly
           ? Promise.resolve([])
           : db.grantApplication.findMany({
-              where: { person: personScope(u) },
+              where: { deletedAt: null, person: personScope(u) },
               include: {
                 scheme: true,
                 assigned: { select: { name: true } },

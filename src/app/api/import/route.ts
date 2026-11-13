@@ -74,6 +74,13 @@ export async function POST(req: NextRequest) {
           r.errors.push("Row is outside your authorised centres.");
           continue;
         }
+        if (p?.deletedAt) {
+          r.action = "Skip";
+          r.errors.push(
+            "This Member ID is in Trash. Ask a manager to restore it before importing.",
+          );
+          continue;
+        }
         if (p) {
           r.existingId = p.id;
           r.action = "Skip";

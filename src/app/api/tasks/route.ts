@@ -92,7 +92,11 @@ export async function GET(req: NextRequest) {
         select: personOptionSelect,
       }),
       db.grantApplication.findMany({
-        where: { id: { in: grantIds }, person: personScope(u) },
+        where: {
+          deletedAt: null,
+          id: { in: grantIds },
+          person: personScope(u),
+        },
         include: {
           scheme: true,
           assigned: { select: { name: true } },

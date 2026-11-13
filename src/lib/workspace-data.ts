@@ -49,6 +49,8 @@ export async function workspaceData(
   });
   const schemes = [
     "settings",
+    "surveys",
+    "trash",
     "programmes",
     "import",
     "audit",
@@ -61,6 +63,8 @@ export async function workspaceData(
   if (
     [
       "settings",
+      "surveys",
+      "trash",
       "members",
       "care-recipients",
       "programmes",
@@ -150,7 +154,7 @@ export async function workspaceData(
         omit: { rawImport: true },
       }),
       db.grantApplication.findMany({
-        where: { personId: p.id, person: personScope(u) },
+        where: { deletedAt: null, personId: p.id, person: personScope(u) },
         include: {
           scheme: true,
           assigned: { select: { name: true } },
@@ -261,7 +265,7 @@ export async function workspaceData(
         select: { dob: true },
       }),
       db.grantApplication.findMany({
-        where: { person: personScope(u) },
+        where: { deletedAt: null, person: personScope(u) },
         select: {
           assignedId: true,
           status: true,
@@ -331,7 +335,7 @@ export async function workspaceData(
         orderBy: { dueDate: "asc" },
       }),
       db.grantApplication.findMany({
-        where: { person: personScope(u) },
+        where: { deletedAt: null, person: personScope(u) },
         include: {
           scheme: true,
           assigned: { select: { name: true } },

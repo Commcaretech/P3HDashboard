@@ -1224,3 +1224,44 @@ td small { display:block; color:var(--muted); font-size:12px; margin-top:4px; }
 .action-metrics .stat.stat-warning {border-top-color:#d97706;}
 .session-check {min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:var(--bg);color:var(--ink);}
 #upcoming-birthdays .empty {padding:24px 12px;}
+
+/* Surveys share the staff workspace's table, modal and form components. */
+.survey-workspace { display: grid; gap: 1rem; min-width: 0; }
+.survey-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: .8rem; }
+.survey-method { color: var(--muted, #526675); font-size: .9rem; }
+.survey-method details { margin-top: .4rem; }
+.survey-workspace .metric-action { text-align: left; display: grid; gap: .4rem; }
+.survey-workspace .metric-action strong { font-size: 1.6rem; }
+.survey-summary { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .85rem; max-height: 24rem; overflow: auto; }
+.survey-detail { display: grid; gap: 1rem; min-width: 0; }
+.survey-detail small { display: block; overflow-wrap: anywhere; color: #526675; }
+.survey-candidate { display: flex; align-items: flex-start; gap: .75rem; border: 1px solid #d3e1e5; padding: .75rem; margin-block: .5rem; border-radius: .6rem; }
+.survey-candidate input { width: auto; margin-top: .3rem; }
+.survey-candidate span { min-width: 0; overflow-wrap: anywhere; }
+.survey-chart { min-width: 0; margin-block: 1rem; }
+.survey-workspace table td { overflow-wrap: anywhere; }
+.survey-workspace label { min-width: 0; }
+@media (max-width: 767px) { .survey-workspace .actions { flex-wrap: wrap; } .survey-workspace .actions button { flex: 1 1 auto; } }
+
+@media (max-width: 600px) {
+ .survey-workspace .table-scroll { overflow: visible; border: 0; background: transparent; }
+ .survey-workspace table, .survey-workspace tbody { display: block; min-width: 0; width: 100%; }
+ .survey-workspace thead { display: none; }
+ .survey-workspace tbody tr { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; padding: 15px; background: #fff; border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 12px; }
+ .survey-workspace td { display: block; border: 0; padding: 0; min-width: 0; max-width: none; }
+ .survey-workspace td:first-child, .survey-workspace td:last-child { grid-column: 1 / -1; }
+ .survey-workspace td::before { content: attr(data-label); display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+}
+
+.trash-workspace { display: grid; gap: 1rem; min-width: 0; }
+.trash-preview { display: grid; gap: .8rem; min-width: 0; }
+.trash-preview h3 { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+ .trash-workspace .table-scroll { overflow: visible; border: 0; background: transparent; }
+ .trash-workspace table, .trash-workspace tbody { display: block; min-width: 0; width: 100%; }
+ .trash-workspace thead { display: none; }
+ .trash-workspace tbody tr { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; padding: 15px; border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 12px; background: #fff; }
+ .trash-workspace td { display: block; border: 0; padding: 0; min-width: 0; overflow-wrap: anywhere; }
+ .trash-workspace td:first-child, .trash-workspace td:last-child { grid-column: 1 / -1; }
+ .trash-workspace td::before { content: attr(data-label); display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+}

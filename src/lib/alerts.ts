@@ -31,6 +31,7 @@ export async function reconcileAlerts(
     where: {
       ...(scope ? { id: { in: scope.personIds ?? [] } } : {}),
       status: "Active",
+      deletedAt: null,
       dob: { not: null },
       OR: [{ kind: "Member" }, { assigned: { recipientBirthdays: true } }],
     },
@@ -78,16 +79,18 @@ export async function reconcileAlerts(
     }
   }
   const grants = await tx.grantApplication.findMany({
-    ...(scope
-      ? {
-          where: {
+    where: {
+      deletedAt: null,
+      person: { deletedAt: null },
+      ...(scope
+        ? {
             OR: [
               { id: { in: scope.grantIds ?? [] } },
               { personId: { in: scope.personIds ?? [] } },
             ],
-          },
-        }
-      : {}),
+          }
+        : {}),
+    },
     include: {
       scheme: true,
       person: { select: { id: true, status: true, assignedId: true } },

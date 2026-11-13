@@ -51,6 +51,17 @@ export default function Overview({
         birthday(new Date(p.dob), today()).days <= 30,
     );
   const cards = [
+    ["Survey responses", totals?.surveyResponses ?? 0, "/surveys"],
+    [
+      "Unmatched Surveys",
+      totals?.unmatchedSurveys ?? 0,
+      "/surveys?view=review&match=Unmatched",
+    ],
+    [
+      "Caregivers with linked surveys",
+      totals?.surveyedCaregivers ?? 0,
+      "/surveys?view=results",
+    ],
     [
       "Total Members / Caregivers",
       totals?.members ??

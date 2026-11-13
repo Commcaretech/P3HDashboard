@@ -164,7 +164,7 @@ export async function POST(req: NextRequest) {
           if (b.action === "grant") {
             const existing = b.id
               ? await tx.grantApplication.findUniqueOrThrow({
-                  where: { id: b.id },
+                  where: { deletedAt: null, id: b.id },
                   include: { scheme: true },
                 })
               : null;
@@ -201,7 +201,7 @@ export async function POST(req: NextRequest) {
             await validateAssignment(tx, u, v.assignedId, permitted.centre);
             if (b.id) {
               const old = await tx.grantApplication.findUniqueOrThrow({
-                where: { id: b.id },
+                where: { deletedAt: null, id: b.id },
               });
               await requirePersonAccess(tx, u, old.personId);
             }
@@ -773,11 +773,23 @@ export async function POST(req: NextRequest) {
           throw new Error("Unsupported action");
         };
         const saved = await mutate();
-        const recordId=saved&&typeof saved==="object"&&"id" in saved?String(saved.id):b.id;
-        if(b.action==="person"&&recordId)await reconcileAlerts(tx,{personIds:[recordId]});
-        else if(b.action==="grant"&&recordId)await reconcileAlerts(tx,{grantIds:[recordId]});
-        else if(b.action==="archive"&&b.data.type==="person"&&b.id)await reconcileAlerts(tx,{personIds:[b.id]});
-        else if(b.action==="staffSettings"&&b.id){const people=await tx.person.findMany({where:{assignedId:b.id},select:{id:true}});await reconcileAlerts(tx,{personIds:people.map(p=>p.id)});}
+        const recordId =
+          saved && typeof saved === "object" && "id" in saved
+            ? String(saved.id)
+            : b.id;
+        if (b.action === "person" && recordId)
+          await reconcileAlerts(tx, { personIds: [recordId] });
+        else if (b.action === "grant" && recordId)
+          await reconcileAlerts(tx, { grantIds: [recordId] });
+        else if (b.action === "archive" && b.data.type === "person" && b.id)
+          await reconcileAlerts(tx, { personIds: [b.id] });
+        else if (b.action === "staffSettings" && b.id) {
+          const people = await tx.person.findMany({
+            where: { assignedId: b.id },
+            select: { id: true },
+          });
+          await reconcileAlerts(tx, { personIds: people.map((p) => p.id) });
+        }
         return saved;
       },
       { timeout: 60000 },
