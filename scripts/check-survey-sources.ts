@@ -1,7 +1,8 @@
 // Reads supplied CSVs in memory. Prints aggregate compatibility only; never identities.
 import JSZip from "jszip";
 import { readFile } from "node:fs/promises";
-import { parseSurveyCSV } from "../src/lib/survey-parser";
+import { readMatchedNCSS } from "../src/lib/ncss-matched-csv";
+import { readSurveyCSV, parseSurveyCSV } from "../src/lib/survey-parser";
 const path = process.argv[2];
 if (!path) throw new Error("Supply the path to the original survey ZIP.");
 const zip = await JSZip.loadAsync(await readFile(path));
@@ -16,6 +17,25 @@ for (const [filename, language] of [
     text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   const rows = parseSurveyCSV(text, language),
     eligible = rows.filter((r) => !r.exclusion);
+  // Append a fictional ID in memory to exercise the new path without matching
+  // or disclosing any respondent's identity.
+  const csv = readSurveyCSV(text);
+  const quote = (value: string) => '"' + value.replaceAll('"', '""') + '"';
+  const matched = readMatchedNCSS(
+    csv
+      .map((row, i) =>
+        [...row, i === 0 ? "Member ID" : "FICTIONAL-0001"].map(quote).join(","),
+      )
+      .join("\n"),
+    language,
+  );
+  if (
+    matched.rows.length !== eligible.length ||
+    matched.rows.some((row) => !row.sourceResponseId || !row.surveyDate)
+  )
+    throw new Error(
+      `Matched workflow did not accept the approved source shape: ${filename}`,
+    );
   console.log(
     JSON.stringify({
       filename,
@@ -31,6 +51,9 @@ for (const [filename, language] of [
       ),
       completeWHOQOL: eligible.filter((r) => r.scores!.overall !== null).length,
       completeZBI: eligible.filter((r) => r.scores!.zbi !== null).length,
+      matchedPreviewEligible: matched.rows.length,
+      matchedFollowUp: matched.rows.filter((row) => row.phase === "Follow-up")
+        .length,
       phaseReview: eligible.filter((r) => r.phase === "Needs Review").length,
       dateReview: eligible.filter((r) => !r.surveyDate).length,
       birthDateReview: eligible.filter((r) => r.dobText && !r.dob).length,

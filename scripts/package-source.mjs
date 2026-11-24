@@ -16,6 +16,7 @@ const files = [
   "postcss.config.mjs",
   "playwright.config.ts",
   "data/.gitkeep",
+  "assets/ncss-member-id-template.xlsx",
 ];
 async function add(path) {
   const name = relative(root, path).replaceAll("\\", "/");
@@ -23,7 +24,8 @@ async function add(path) {
     name.startsWith("../") ||
     (/^\.env(?:\.|$)/.test(name.split("/").at(-1) ?? "") &&
       name !== ".env.example") ||
-    /\.(db|xlsx|xls|csv|zip)$/.test(name)
+    (/\.(db|xlsx|xls|csv|zip)$/.test(name) &&
+      name !== "assets/ncss-member-id-template.xlsx")
   )
     throw new Error("Source package contains an unsupported file.");
   zip.file(name, await readFile(path));

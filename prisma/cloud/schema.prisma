@@ -38,12 +38,9 @@ model Session {
  @@index([expiresAt])
 }
 model Person {
-<<<<<<< HEAD
  deletedAt DateTime?
  deletedBy String?
  @@index([deletedAt])
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
  surveyResponses SurveyResponse[]
  verifiedAliases PersonAlias[]
  id String @id @default(cuid())
@@ -455,23 +452,22 @@ model SurveyImportBatch {
  @@index([centre,createdAt])
 }
 model SurveyResponse {
-<<<<<<< HEAD
  deletedAt DateTime?
  deletedBy String?
  @@index([deletedAt])
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
  id String @id @default(cuid())
  batchId String
  batch SurveyImportBatch @relation(fields:[batchId],references:[id])
  sourceKey String @unique
  contentHash String
  sourceResponseId String @default("")
+ importMode String @default("Legacy")
  rowNumber Int
  centre String
  language String
  submittedName String
  cleanedName String
+ correctedName String?
  timestampText String
  surveyDate DateTime?
  dobText String @default("")
@@ -495,8 +491,21 @@ model SurveyResponse {
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
  reviews SurveyIdentityReview[]
+ identityStage SurveyIdentityStage?
  @@index([centre,matchStatus,surveyDate])
  @@index([personId,method,surveyDate])
+ @@index([confirmedMemberId,surveyDate])
+ @@index([sourceResponseId])
+}
+model SurveyIdentityStage {
+ responseId String @id
+ response SurveyResponse @relation(fields:[responseId],references:[id])
+ submittedName String
+ cleanedName String
+ correctedName String?
+ dobText String
+ dob DateTime?
+ nameHistory Json
 }
 model SurveyIdentityReview {
  id String @id @default(cuid())

@@ -1,4 +1,5 @@
 import { db, personInclude, programmeInclude } from "./db";
+import { redactSurveyAudit } from "./records";
 import { AccessUser, personScope, programmeScope, alertScope } from "./access";
 import { birthday, today } from "./domain";
 import { closedGrant } from "./follow-up";
@@ -50,10 +51,7 @@ export async function workspaceData(
   const schemes = [
     "settings",
     "surveys",
-<<<<<<< HEAD
     "trash",
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
     "programmes",
     "import",
     "audit",
@@ -67,10 +65,7 @@ export async function workspaceData(
     [
       "settings",
       "surveys",
-<<<<<<< HEAD
       "trash",
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
       "members",
       "care-recipients",
       "programmes",
@@ -189,7 +184,7 @@ export async function workspaceData(
       people: [p, ...related.map((r) => ({ ...r, rawImport: null }))],
       grants,
       alerts,
-      audit,
+      audit: audit.map(redactSurveyAudit),
     };
   }
   if (section === "matching") {

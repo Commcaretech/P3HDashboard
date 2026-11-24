@@ -1,5 +1,7 @@
 # Surveys & Outcomes implementation and deployment report
 
+This report captures the original survey release. The current CaritaHub identity workflow, staging and Member ID exports are described in the [dashboard completion report](dashboard-completion.md) and [staff guide](surveys-staff-guide.md).
+
 Branch: `feat/surveys-outcomes-workspace`. Work extends the existing staff application. The operational database, caregiver identifiers, existing ZBI assessments, programmes, grants, reminders, sessions and history are retained. No production deployment or operational database migration is performed by development tests.
 
 ## Supplied sources and precedence

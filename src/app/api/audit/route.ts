@@ -5,6 +5,7 @@ import { privateHeaders } from "@/lib/permission-key";
 import { auditScope } from "@/lib/audit-scope";
 import { searchText } from "@/lib/query";
 import { errorResponse } from "@/lib/http";
+import { redactSurveyAudit } from "@/lib/records";
 export async function GET(req: NextRequest) {
   try {
     const u = await requireUser("audit"),
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
       take: size,
     });
     return NextResponse.json(
-      { audit, total, page, size },
+      { audit: audit.map(redactSurveyAudit), total, page, size },
       { headers: privateHeaders(u) },
     );
   } catch (e) {

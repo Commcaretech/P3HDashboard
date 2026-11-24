@@ -71,11 +71,8 @@ No telemetry, remote asset or browser record storage is introduced. Optional con
 ## Surveys & Outcomes
 
 Use the [survey staff guide](surveys-staff-guide.md) for multilingual CSV previews, unmatched identities, Member ID confirmation, verified aliases, caregiver history, provisional scoring and manager exports. Programme sync remains automatic for import and interest matching; the separate survey identity confirmation protects caregiver outcomes from incorrect nickname matches.
-<<<<<<< HEAD
 
 
 ## Move to Trash and Restore
 
 Admin and Manager accounts can remove individual main records from normal views using **Move to Trash**, then recover them through **Trash**. The preview explains related history before confirmation. See [Trash and Restore](trash-and-restore.md). Archive is retained as a separate status action.
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4

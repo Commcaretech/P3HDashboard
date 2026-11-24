@@ -154,8 +154,9 @@ test("consent, tests, names, timestamps, missing phases and birth years are hand
   assert.equal(surveyDate("13/11/2026 25:10", true), null);
   assert.equal(
     surveyPhase("At the end of / After the programme ??"),
-    "Needs Review",
+    "Follow-up",
   );
+  assert.equal(surveyPhase("After programme"), "Needs Review");
   const row = parseSurveyCSV(
     fakeSurvey({ 1: "bad", 3: "1/1/60", 4: "" }),
     "English",

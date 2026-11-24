@@ -23,7 +23,7 @@ export default function SurveyTrend({ rows }: { rows: Row[] }) {
       (r) =>
         r.surveyDate &&
         r.method === SURVEY_METHOD &&
-        ["Baseline", "Annual"].includes(r.phase || ""),
+        ["Baseline", "Annual", "Follow-up"].includes(r.phase || ""),
     )
     .sort(
       (a, b) =>
@@ -90,5 +90,62 @@ export default function SurveyTrend({ rows }: { rows: Row[] }) {
         </section>
       ))}
     </div>
+  );
+}
+
+export function SurveyMonthlyTrend({
+  rows,
+}: {
+  rows: {
+    month: string;
+    overall: number | null;
+    zbi: number | null;
+    overallCount: number;
+    zbiCount: number;
+  }[];
+}) {
+  return (
+    <section className="panel">
+      <h3>Survey scores over time</h3>
+      <p>
+        Each point is the average of valid, verified responses that month. The
+        caregivers represented may vary by month.
+      </p>
+      {(
+        [
+          ["overall", "overallCount", "Monthly WHOQOL Overall (0–100)", 100],
+          ["zbi", "zbiCount", "Monthly six-item ZBI (0–24)", 24],
+        ] as const
+      ).map(([metric, count, title, limit]) => (
+        <section className="survey-chart" key={metric}>
+          <h4>{title}</h4>
+          {rows.filter((row) => row[metric] !== null).length < 2 ? (
+            <p>
+              At least two months with valid scores are needed for this chart.
+            </p>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={rows}>
+                <XAxis dataKey="month" />
+                <YAxis domain={[0, limit]} />
+                <Tooltip
+                  formatter={(value, _name, item) => [
+                    `${value} (${item.payload[count]} responses)`,
+                    title,
+                  ]}
+                />
+                <Line
+                  dataKey={metric}
+                  name={title}
+                  stroke="#0f766e"
+                  connectNulls={false}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </section>
+      ))}
+    </section>
   );
 }

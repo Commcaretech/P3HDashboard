@@ -34,7 +34,6 @@ try {
       "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename",
     )
   ).rows.map((r) => r.tablename);
-<<<<<<< HEAD
   const originalColumns = new Map();
   for (const table of tables)
     originalColumns.set(
@@ -46,8 +45,6 @@ try {
         )
       ).rows.map((r) => r.column_name),
     );
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
   const before = new Map();
   for (const table of tables)
     before.set(
@@ -60,8 +57,10 @@ try {
       "utf8",
     ),
   );
-<<<<<<< HEAD
-  for (const name of folders.filter((n) => n > "202611130001_surveys_outcomes"))
+  const stagingMigration = "202611230002_caritahub_identity_stage";
+  for (const name of folders.filter(
+    (n) => n > "202611130001_surveys_outcomes" && n < stagingMigration,
+  ))
     await pg.exec(
       readFileSync(`prisma/cloud/migrations/${name}/migration.sql`, "utf8"),
     );
@@ -77,11 +76,6 @@ try {
           )
         ).rows,
       ),
-=======
-  for (const table of tables)
-    assert.equal(
-      JSON.stringify((await pg.query(`SELECT * FROM "${table}"`)).rows),
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
       before.get(table),
       `Preserve ${table}`,
     );
@@ -89,6 +83,24 @@ try {
     INSERT INTO "SurveyResponse"(id,"batchId","sourceKey","contentHash","rowNumber",centre,language,"submittedName","cleanedName","timestampText","personId","rawAnswers",answers,method,warnings,physical,"updatedAt") VALUES('survey','batch','source','hash',2,'Centre A','English','Fictional','Fictional','2026-11-13','fake-person','{"Q1":"3"}','{"Q1":3}','P3H_WHOQOL_ZBI6_v1_complete_domains','[]',50,CURRENT_TIMESTAMP);
     INSERT INTO "PersonAlias"(id,"personId",text,normalized,"verifiedBy") VALUES('alias','fake-person','Fictional Alias','fictional alias','fake-user');
     INSERT INTO "SurveyIdentityReview"(id,"responseId",action,"reviewedBy") VALUES('review','survey','Linked','fake-user');`);
+  for (const name of folders.filter((n) => n >= stagingMigration))
+    await pg.exec(
+      readFileSync(`prisma/cloud/migrations/${name}/migration.sql`, "utf8"),
+    );
+  const migrationResult = (
+    await pg.query(`
+    SELECT r."submittedName", r."rawAnswers", r."personId", r."importMode", s."submittedName" AS staged
+    FROM "SurveyResponse" r JOIN "SurveyIdentityStage" s ON s."responseId" = r.id
+    WHERE r.id = 'survey'
+  `)
+  ).rows[0];
+  assert.deepEqual(migrationResult, {
+    submittedName: "",
+    rawAnswers: { Q1: "3" },
+    personId: "fake-person",
+    staged: "Fictional",
+    importMode: "Legacy",
+  });
   assert.equal(
     (
       await pg.query(
@@ -104,19 +116,25 @@ try {
   );
   await assert.rejects(
     pg.exec(
-<<<<<<< HEAD
       `INSERT INTO "SurveyResponse"(id,"batchId","sourceKey","contentHash","sourceResponseId","rowNumber",centre,language,"submittedName","cleanedName","timestampText","surveyDate","dobText",dob,"phaseText",phase,"personId","confirmedMemberId","matchStatus","rawAnswers",answers,method,warnings,physical,psychological,social,environment,overall,zbi,"createdAt","updatedAt") SELECT 'duplicate',"batchId","sourceKey","contentHash","sourceResponseId","rowNumber",centre,language,"submittedName","cleanedName","timestampText","surveyDate","dobText",dob,"phaseText",phase,"personId","confirmedMemberId","matchStatus","rawAnswers",answers,method,warnings,physical,psychological,social,environment,overall,zbi,"createdAt","updatedAt" FROM "SurveyResponse" WHERE id='survey'`,
-=======
-      `INSERT INTO "SurveyResponse" SELECT 'duplicate',"batchId","sourceKey","contentHash","sourceResponseId","rowNumber",centre,language,"submittedName","cleanedName","timestampText","surveyDate","dobText",dob,"phaseText",phase,"personId","confirmedMemberId","matchStatus","rawAnswers",answers,method,warnings,physical,psychological,social,environment,overall,zbi,"createdAt","updatedAt" FROM "SurveyResponse" WHERE id='survey'`,
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
     ),
   );
+  const indexes = (
+    await pg.query(
+      "SELECT indexname FROM pg_indexes WHERE tablename='SurveyResponse'",
+    )
+  ).rows.map((row) => row.indexname);
+  assert.ok(
+    indexes.includes("SurveyResponse_confirmedMemberId_surveyDate_idx"),
+  );
+  assert.ok(indexes.includes("SurveyResponse_sourceResponseId_idx"));
   console.log(
     JSON.stringify({
       engine: "Isolated PGlite PostgreSQL WASM",
       migrations: folders.length,
       originalTablesPreserved: tables.length,
-      newTables: 4,
+      newTables: 5,
+      existingSurveyStaged: true,
       foreignKeys: true,
       sourceUniqueness: true,
       jsonAndNumericAggregation: true,

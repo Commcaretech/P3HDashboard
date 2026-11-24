@@ -11,6 +11,7 @@ import { dashboardData } from "@/lib/dashboard";
 import { workspaceData } from "@/lib/workspace-data";
 import { permissionKey, privateHeaders } from "@/lib/permission-key";
 import { can } from "@/lib/domain";
+import { redactSurveyAudit } from "@/lib/records";
 
 export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
@@ -183,7 +184,7 @@ export async function GET(req: NextRequest) {
         alerts,
         schemes,
         staff,
-        audit: scopedAudit,
+        audit: scopedAudit.map(redactSurveyAudit),
       },
       { headers: { "Cache-Control": "private, no-store" } },
     );

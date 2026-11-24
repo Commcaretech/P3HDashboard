@@ -404,7 +404,20 @@ test("dashboard summaries scope conditions and omit full clinical/import relatio
       { personId: outside.id, conditionId: b.id },
     ],
   });
-  const result = await dashboardData(u);
+  await db.careRelationship.createMany({
+    data: [inside.id, outside.id].map((recipientId) => ({
+      memberId: p.id,
+      recipientId,
+      relationship: "Family",
+    })),
+  });
+  const result = await dashboardData(u).finally(() =>
+    db.careRelationship.deleteMany({
+      where: { memberId: p.id, recipientId: { in: [inside.id, outside.id] } },
+    }),
+  );
+  assert.equal(result.dashboardSummary.centreContext, "Centre A");
+  assert.equal(result.dashboardSummary.totals.linkedRecipients, 1);
   assert.ok(result.people.every((p) => p.centre === "Centre A"));
   assert.deepEqual(result.dashboardSummary.conditions, [
     { name: a.name, count: 1 },

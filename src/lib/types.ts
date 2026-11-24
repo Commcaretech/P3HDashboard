@@ -210,11 +210,13 @@ export type Data = {
     }[];
   };
   dashboardSummary?: {
+    centreContext?: string;
     totals?: {
       members: number;
       surveyResponses?: number;
       unmatchedSurveys?: number;
       surveyedCaregivers?: number;
+      linkedRecipients?: number;
       recipients: number;
       activeCases: number;
       dementia: number;

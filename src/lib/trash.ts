@@ -142,7 +142,7 @@ async function record(
   return {
     ...base(r),
     kind: "Survey",
-    label: r.cleanedName || r.confirmedMemberId || "Unnamed survey",
+    label: r.confirmedMemberId || r.id,
     centre: r.centre,
     parentTrashed: Boolean(r.person?.deletedAt),
     impact: [
@@ -416,7 +416,7 @@ export async function listTrash(
             ? [
                 {
                   OR: [
-                    { cleanedName: searchText(q) },
+                    { id: searchText(q) },
                     { confirmedMemberId: searchText(q) },
                   ],
                 },
@@ -431,7 +431,6 @@ export async function listTrash(
         orderBy: [{ deletedAt: "desc" }, { id: "asc" }],
         select: {
           id: true,
-          cleanedName: true,
           confirmedMemberId: true,
           centre: true,
           deletedAt: true,
@@ -445,7 +444,7 @@ export async function listTrash(
           id: r.id,
           type: t,
           kind: "Survey",
-          label: r.cleanedName || r.confirmedMemberId || "Unnamed survey",
+          label: r.confirmedMemberId || r.id,
           centre: r.centre,
           deletedAt: r.deletedAt!.toISOString(),
           deletedBy: r.deletedBy,
