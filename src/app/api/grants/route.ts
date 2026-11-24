@@ -2,20 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { personScope } from "@/lib/access";
+import { grantScope } from "@/lib/access";
 import { privateHeaders } from "@/lib/permission-key";
 import { personOptionSelect } from "@/lib/workspace-data";
 import { searchText } from "@/lib/query";
-import { closedGrant } from "@/lib/follow-up";
+import { addDays, openGrantFilter } from "@/lib/follow-up";
 import { today } from "@/lib/domain";
 import { errorResponse } from "@/lib/http";
 export async function GET(req: NextRequest) {
   try {
     const u = await requireUser(),
       f = Object.fromEntries(req.nextUrl.searchParams);
-    const and: Prisma.GrantApplicationWhereInput[] = [
-      { person: personScope(u) },
-    ];
+    const scope = grantScope(u);
+    const and: Prisma.GrantApplicationWhereInput[] = [scope];
     if (f.q)
       and.push({
         OR: [
@@ -50,44 +49,46 @@ export async function GET(req: NextRequest) {
           },
         ],
       });
-    const all = await db.grantApplication.findMany({
-        where: { deletedAt: null, person: personScope(u) },
-        select: {
-          id: true,
-          status: true,
-          resolvedAt: true,
-          nextReviewDate: true,
-        },
-      }),
-      now = today();
-    const openIds = all.filter((g) => !closedGrant(g)).map((g) => g.id);
-    if (f.open) and.push({ id: { in: openIds } });
+    const todayDate = today();
+    const todayStart = new Date(todayDate);
+    const tomorrowStart = new Date(addDays(todayDate, 1));
+    const open = { ...scope, ...openGrantFilter };
+    if (f.open || f.time) and.push(openGrantFilter);
     if (f.time)
       and.push({
-        id: {
-          in: all
-            .filter(
-              (g) =>
-                !closedGrant(g) &&
-                g.nextReviewDate &&
-                (f.time === "Overdue"
-                  ? g.nextReviewDate.toISOString().slice(0, 10) < now
-                  : g.nextReviewDate.toISOString().slice(0, 10) === now),
-            )
-            .map((g) => g.id),
-        },
+        nextReviewDate:
+          f.time === "Overdue"
+            ? { lt: todayStart }
+            : { gte: todayStart, lt: tomorrowStart },
       });
-    const where = { AND: [{ deletedAt: null }, ...and] },
-      total = await db.grantApplication.count({ where }),
-      size = [20, 50, 100].includes(Number(f.size)) ? Number(f.size) : 20,
+    const where = { AND: and };
+    const [total, statuses, active, due, overdue] = await Promise.all([
+      db.grantApplication.count({ where }),
+      db.grantApplication.groupBy({
+        by: ["status"],
+        where: scope,
+        _count: { _all: true },
+        orderBy: { status: "asc" },
+      }),
+      db.grantApplication.count({ where: open }),
+      db.grantApplication.count({
+        where: { ...open, nextReviewDate: { lt: tomorrowStart } },
+      }),
+      db.grantApplication.count({
+        where: { ...open, nextReviewDate: { lt: todayStart } },
+      }),
+    ]);
+    const allCount = statuses.reduce((sum, row) => sum + row._count._all, 0);
+    const size = [20, 50, 100].includes(Number(f.size)) ? Number(f.size) : 20,
       page = Math.max(
         1,
         Math.min(Math.ceil(total / size) || 1, Math.floor(Number(f.page)) || 1),
       );
-    const grants = await db.grantApplication.findMany({
+    const rows = await db.grantApplication.findMany({
       where,
       include: {
         scheme: true,
+        person: { select: personOptionSelect },
         assigned: { select: { name: true } },
         followUps: { orderBy: { completedAt: "desc" } },
       },
@@ -95,35 +96,24 @@ export async function GET(req: NextRequest) {
       skip: (page - 1) * size,
       take: size,
     });
-    const people = await db.person.findMany({
-      where: {
-        AND: [personScope(u), { id: { in: grants.map((g) => g.personId) } }],
-      },
-      select: personOptionSelect,
+    const people = new Map<string, (typeof rows)[number]["person"]>();
+    const grants = rows.map(({ person, ...grant }) => {
+      people.set(person.id, person);
+      return grant;
     });
     return NextResponse.json(
       {
         grants,
-        people,
+        people: [...people.values()],
         total,
         page,
         size,
-        statuses: [...new Set(all.map((g) => g.status))],
+        statuses: statuses.map((row) => row.status),
         counts: {
-          active: openIds.length,
-          due: all.filter(
-            (g) =>
-              !closedGrant(g) &&
-              g.nextReviewDate &&
-              g.nextReviewDate.toISOString().slice(0, 10) <= now,
-          ).length,
-          overdue: all.filter(
-            (g) =>
-              !closedGrant(g) &&
-              g.nextReviewDate &&
-              g.nextReviewDate.toISOString().slice(0, 10) < now,
-          ).length,
-          completed: all.filter(closedGrant).length,
+          active,
+          due,
+          overdue,
+          completed: allCount - active,
         },
       },
       { headers: privateHeaders(u) },

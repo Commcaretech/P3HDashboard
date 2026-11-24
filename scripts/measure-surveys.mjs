@@ -9,12 +9,16 @@ import { pathToFileURL } from "node:url";
 import { chromium } from "@playwright/test";
 const phase = process.argv[2] || "after",
   source = resolve(process.argv[3] || ".");
+const withSurveys =
+  phase === "after" || process.argv.includes("--with-surveys");
 const { parseSurveyCSV } = await import(
   pathToFileURL(resolve(source, "src/lib/survey-parser.ts")).href
 );
 const { surveyHeaders } = await import(
   pathToFileURL(resolve(source, "src/lib/survey-parser.ts")).href
 );
+const { ncssHeaders, readMatchedNCSS } =
+  await import("../src/lib/ncss-matched-csv.ts");
 const results = [];
 for (const size of [100, 1000, 5000]) {
   const file = resolve("data", `survey-benchmark-${randomUUID()}.db`),
@@ -26,6 +30,7 @@ for (const size of [100, 1000, 5000]) {
     ...process.env,
     DATABASE_URL: url,
     APP_ORIGIN: base,
+    NCSS_SURVEY_IMPORT_APPROVAL: "fictional-benchmark-only",
     EMAIL_ENABLED: "false",
     P3H_SYNC_ENABLED: "false",
     NEXT_TELEMETRY_DISABLED: "1",
@@ -192,7 +197,7 @@ for (const size of [100, 1000, 5000]) {
       "/api/people?kind=Member&q=Fictional&size=20",
       "/api/data?section=people&id=cg-0",
       "/api/grants?size=20",
-      ...(phase === "after"
+      ...(withSurveys
         ? ["/api/surveys?view=records&size=20", "/api/surveys?view=overview"]
         : []),
     ]) {
@@ -238,7 +243,7 @@ for (const size of [100, 1000, 5000]) {
       csv.slice(csv.indexOf("\n"));
     const at = performance.now();
     parseSurveyCSV(csvText, "English");
-    const csvMs = Math.round(performance.now() - at);
+    let csvMs = Math.round(performance.now() - at);
     await page.goto(base + "/dashboard");
     await page
       .getByRole("heading", { name: "My Tasks Today", exact: true })
@@ -248,7 +253,7 @@ for (const size of [100, 1000, 5000]) {
       ["members", "Caregivers"],
       ["grants", "Grants & Referrals"],
       ["dashboard", "P3H Dashboard"],
-      ...(phase === "after" ? [["surveys", "Surveys & Outcomes"]] : []),
+      ...(withSurveys ? [["surveys", "Surveys & Outcomes"]] : []),
     ]) {
       const at = performance.now();
       await page.locator(`a[href="/${path}"]`).first().click();
@@ -269,6 +274,59 @@ for (const size of [100, 1000, 5000]) {
           .waitFor();
       navigation.push({ path, ms: Math.round(performance.now() - at) });
     }
+    let csvCommitMs = null;
+    if (withSurveys) {
+      const rows = Array.from({ length: size }, (_, i) => [
+        i.toString(16).padStart(24, "0"),
+        "13/11/2026 10:00",
+        "Fictional name",
+        "01/01/1960",
+        "At the start of / Before the programme",
+        "Yes",
+        ...Array(26).fill("3"),
+        ...Array(6).fill("1"),
+        "",
+        "",
+        `FAKE-${String(i).padStart(5, "0")}`,
+      ]);
+      const matchedCsv = [[...ncssHeaders, "Member ID"], ...rows]
+        .map((line) =>
+          line
+            .map((value) => '"' + value.replaceAll('"', '""') + '"')
+            .join(","),
+        )
+        .join("\n");
+      const parsing = performance.now();
+      const matched = readMatchedNCSS(matchedCsv, "English");
+      csvMs = Math.round(performance.now() - parsing);
+      const intake = {
+        centre: "Benchmark Centre",
+        language: matched.language,
+        rows: matched.rows,
+        excludedConsent: 0,
+        excludedTest: 0,
+      };
+      const headers = { Origin: base };
+      const preview = await context.request.post(base + "/api/surveys", {
+        headers,
+        data: { ...intake, action: "preview" },
+        timeout: 65000,
+      });
+      if (!preview.ok()) throw Error("Benchmark matched preview failed");
+      const { reviewToken } = await preview.json();
+      const started = performance.now();
+      const response = await context.request.post(base + "/api/surveys", {
+        headers,
+        data: { ...intake, action: "import", reviewToken },
+        timeout: 65000,
+      });
+      const result = await response.json();
+      csvCommitMs = Math.round(performance.now() - started);
+      if (!response.ok() || result.summary?.saved !== size)
+        throw Error(
+          "Benchmark import did not commit the complete fictional batch",
+        );
+    }
     results.push({
       caregivers: size,
       recipients: size,
@@ -276,6 +334,7 @@ for (const size of [100, 1000, 5000]) {
       surveys: size * 2,
       api,
       csvProcessingMs: csvMs,
+      csvCommitMs,
       navigation,
     });
   } finally {
@@ -290,7 +349,7 @@ writeFileSync(
   JSON.stringify(
     {
       phase,
-      note: "Local fictional SQLite, median of three API samples. Navigation includes browser overhead. CSV parser is current in both runs; survey endpoints did not exist in baseline.",
+      note: "Local fictional SQLite, median of three API samples. Navigation includes browser overhead. CSV commit includes request handling, validation and transactional storage.",
       results,
     },
     null,

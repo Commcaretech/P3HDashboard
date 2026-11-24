@@ -78,6 +78,10 @@ export function calculateFollowUp(
           : "",
   };
 }
+const closedGrantStatuses = ["Rejected", "Expired", "Completed"];
+export const openGrantFilter = {
+  resolvedAt: null,
+  status: { notIn: closedGrantStatuses },
+};
 export const closedGrant = (g: { resolvedAt?: unknown; status: string }) =>
-  Boolean(g.resolvedAt) ||
-  ["Rejected", "Expired", "Completed"].includes(g.status);
+  Boolean(g.resolvedAt) || closedGrantStatuses.includes(g.status);

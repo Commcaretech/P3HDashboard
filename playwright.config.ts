@@ -18,6 +18,7 @@ export default defineConfig({
     env: {
       DATABASE_URL: `file:${resolve("data/e2e.db").replace(/\\/g, "/")}`,
       NEXT_TELEMETRY_DISABLED: "1",
+      NCSS_SURVEY_IMPORT_APPROVAL: "fictional-playwright-only",
       EMAIL_ENABLED: "false",
       P3H_SYNC_ENABLED: "true",
       P3H_PROGRAMME_FEED_URL: "https://abcdefghijklmnopqrst.supabase.co/functions/v1/p3h-programmes",

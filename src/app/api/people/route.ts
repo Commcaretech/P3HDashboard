@@ -4,8 +4,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { personScope } from "@/lib/access";
+import { alertScope, grantScope, personScope } from "@/lib/access";
 import { errorResponse } from "@/lib/http";
+import { normaliseAlias } from "@/lib/survey-parser";
 export async function GET(req: NextRequest) {
   try {
     const u = await requireUser(),
@@ -14,6 +15,7 @@ export async function GET(req: NextRequest) {
     const page = Math.max(1, Math.min(100000, Math.floor(Number(f.page)) || 1)),
       size = [20, 50, 100].includes(Number(f.size)) ? Number(f.size) : 20;
     const q = (f.q ?? "").slice(0, 200),
+      alias = normaliseAlias(q),
       and: Prisma.PersonWhereInput[] = [
         personScope(u),
         { kind, status: f.status || { not: "Archived" } },
@@ -25,14 +27,15 @@ export async function GET(req: NextRequest) {
           { memberId: searchText(q) },
           { alias: searchText(q) },
           { contactNumber: searchText(q) },
-          {
-            verifiedAliases: {
-              some: {
-                verified: true,
-                normalized: searchText(q.toLowerCase().trim()),
-              },
-            },
-          },
+          ...(alias
+            ? [
+                {
+                  verifiedAliases: {
+                    some: { verified: true, normalized: searchText(alias) },
+                  },
+                },
+              ]
+            : []),
           { remarks: searchText(q) },
           { tags: searchText(q) },
           { conditions: { some: { condition: { name: searchText(q) } } } },
@@ -77,7 +80,9 @@ export async function GET(req: NextRequest) {
     if (f.mobility) and.push({ mobility: f.mobility });
     if (f.tag) and.push({ tags: searchText(f.tag) });
     if (f.scheme)
-      and.push({ grants: { some: { scheme: { name: f.scheme } } } });
+      and.push({
+        grants: { some: { ...grantScope(u), scheme: { name: f.scheme } } },
+      });
     if (f.assigned)
       and.push(
         f.assigned === "Unassigned"
@@ -162,7 +167,7 @@ export async function GET(req: NextRequest) {
             },
           },
           alerts: {
-            where: { status: "Pending" },
+            where: { AND: [alertScope(u), { status: "Pending" }] },
             orderBy: { dueDate: "asc" },
             select: {
               id: true,
@@ -173,10 +178,10 @@ export async function GET(req: NextRequest) {
           },
         },
       }),
-      db.person.findMany({
+      db.person.groupBy({
+        by: ["centre"],
         where: base,
-        select: { centre: true },
-        distinct: ["centre"],
+        orderBy: { centre: "asc" },
       }),
       db.language.findMany({
         where: { people: { some: { person: base } } },
@@ -208,20 +213,19 @@ export async function GET(req: NextRequest) {
         where: { people: { some: { person: base } } },
         select: { name: true },
       }),
-      db.person.findMany({
+      db.person.groupBy({
+        by: ["mobility"],
         where: base,
-        select: { mobility: true },
-        distinct: ["mobility"],
+        orderBy: { mobility: "asc" },
       }),
-      db.person.findMany({
+      db.person.groupBy({
+        by: ["tags"],
         where: base,
-        select: { tags: true },
-        distinct: ["tags"],
+        orderBy: { tags: "asc" },
       }),
-      db.person.findMany({
+      db.person.groupBy({
+        by: ["preferredLanguage"],
         where: base,
-        select: { preferredLanguage: true },
-        distinct: ["preferredLanguage"],
       }),
     ]);
     return NextResponse.json(

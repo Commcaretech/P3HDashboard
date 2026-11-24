@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import dynamic from "next/dynamic";
+import { useSearchParams } from "next/navigation";
 const Surveys = dynamic(() => import("./surveys"), {
   loading: () => <p>Loading survey history...</p>,
 });
@@ -10,10 +11,7 @@ import { Table, Badge, PersonLink } from "./ui";
 import { completeness, alertDue } from "@/lib/workflow";
 import { names, Editing } from "./common";
 import { grantDatesFromNotes } from "@/lib/grant-note-dates";
-<<<<<<< HEAD
 import { TrashButton } from "./trash";
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
 export default function Profile({
   d,
   id,
@@ -33,10 +31,7 @@ export default function Profile({
   manager?: boolean;
   revision?: number;
   onEdit: (p: Person) => void;
-<<<<<<< HEAD
   onTrashed?: () => void | Promise<void>;
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
   grant: (
     g?: Grant,
     personId?: string,
@@ -50,7 +45,10 @@ export default function Profile({
     id?: string,
   ) => Promise<void>;
 }) {
-  const [tab, setTab] = useState("Overview");
+  const requestedTab = useSearchParams().get("tab");
+  const [tab, setTab] = useState(() =>
+    requestedTab === "surveys" ? "Surveys & Outcomes" : "Overview",
+  );
   const p = d.people.find((x) => x.id === id);
   if (!p)
     return (

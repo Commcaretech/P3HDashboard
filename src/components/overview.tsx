@@ -10,8 +10,10 @@ import Link from "next/link";
 import { Data, label, day } from "@/lib/types";
 import { birthday, today } from "@/lib/domain";
 import { Badge, PersonLink } from "./ui";
-import { Chart } from "./charts";
 import { count } from "./common";
+import dynamic from "next/dynamic";
+
+const Chart = dynamic(() => import("./charts").then((module) => module.Chart));
 export default function Overview({
   d,
   userId,
@@ -26,7 +28,9 @@ export default function Overview({
   action: (a: string, v: Record<string, unknown>, id?: string) => Promise<void>;
 }) {
   const [followUp, setFollowUp] = useState<Alert | null>(null);
+  const [chartsOpen, setChartsOpen] = useState(false);
   const totals = d.dashboardSummary?.totals;
+  const peopleById = new Map(d.people.map((person) => [person.id, person]));
   const members = d.people.filter(
       (p) => p.kind === "Member" && p.status === "Active",
     ),
@@ -59,7 +63,7 @@ export default function Overview({
     ],
     [
       "Caregivers with linked surveys",
-      totals?.surveyedCaregivers ?? 0,
+      `${totals?.surveyedCaregivers ?? 0} of ${totals?.activeCases ?? members.length} active`,
       "/surveys?view=results",
     ],
     [
@@ -81,6 +85,11 @@ export default function Overview({
       "Active P3H Cases",
       totals?.activeCases ?? members.length,
       "/members?status=Active",
+    ],
+    [
+      "Care recipients linked to active caregivers",
+      totals?.linkedRecipients ?? 0,
+      "/care-recipients",
     ],
     [
       "Care Recipients with Dementia",
@@ -229,35 +238,40 @@ export default function Overview({
                 <h3>
                   <Badge>{group}</Badge> <small>{items.length} actions</small>
                 </h3>
-                {items.slice(0, 5).map((a) => (
-                  <div key={a.id} className="attention-item">
-                    <div>
-                      <Link href={`/alerts?q=${encodeURIComponent(a.title)}`}>
-                        {a.title}
-                      </Link>
-                      {a.personId && (
-                        <small>
-                          <PersonLink id={a.personId}>
-                            {label(d.people.find((p) => p.id === a.personId)!)}
-                          </PersonLink>
-                        </small>
+                {items.slice(0, 5).map((a) => {
+                  const person = a.personId
+                    ? peopleById.get(a.personId)
+                    : undefined;
+                  return (
+                    <div key={a.id} className="attention-item">
+                      <div>
+                        <Link href={`/alerts?q=${encodeURIComponent(a.title)}`}>
+                          {a.title}
+                        </Link>
+                        {person && (
+                          <small>
+                            <PersonLink id={person.id}>
+                              {label(person)}
+                            </PersonLink>
+                          </small>
+                        )}
+                      </div>
+                      <span>
+                        {day(alertDue(a))}
+                        <small>{a.assigned?.name ?? "Unassigned"}</small>
+                      </span>
+                      <Badge>{a.priority}</Badge>
+                      {write && a.grantId && a.type === "Grant review" && (
+                        <button
+                          className="secondary"
+                          onClick={() => setFollowUp(a)}
+                        >
+                          Mark Follow-up Done
+                        </button>
                       )}
                     </div>
-                    <span>
-                      {day(alertDue(a))}
-                      <small>{a.assigned?.name ?? "Unassigned"}</small>
-                    </span>
-                    <Badge>{a.priority}</Badge>
-                    {write && a.grantId && a.type === "Grant review" && (
-                      <button
-                        className="secondary"
-                        onClick={() => setFollowUp(a)}
-                      >
-                        Mark Follow-up Done
-                      </button>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )
           );
@@ -272,7 +286,10 @@ export default function Overview({
           onClose={() => setFollowUp(null)}
         />
       )}
-      <details className="panel management-statistics">
+      <details
+        className="panel management-statistics"
+        onToggle={(event) => setChartsOpen(event.currentTarget.open)}
+      >
         <summary>Management statistics</summary>
         <div className="section-head">
           <h2>Caseload and support</h2>
@@ -287,66 +304,69 @@ export default function Overview({
             </Link>
           ))}
         </div>
-        <div className="chart-grid">
-          <Chart
-            horizontal
-            title="Care recipients by condition"
-            href="/care-recipients"
-            values={
-              d.dashboardSummary?.conditions ??
-              count(
-                recipients.flatMap((p) =>
-                  p.conditions.map((x) => x.condition.name),
-                ),
-              )
-            }
-          />
-          <Chart
-            horizontal
-            title="Caregiver preferred language"
-            href="/members"
-            values={
-              d.dashboardSummary?.charts?.languages ??
-              count(members.map((p) => p.preferredLanguage || "Not recorded"))
-            }
-          />
-          <Chart
-            horizontal
-            title="Overdue follow-ups by staff"
-            href="/alerts?time=Overdue"
-            values={
-              d.dashboardSummary?.charts?.overdueStaff ??
-              count(
-                pending
-                  .filter(
-                    (a) =>
-                      a.type.startsWith("Grant") && alertGroup(a) === "Overdue",
-                  )
-                  .map((a) => a.assigned?.name ?? "Unassigned"),
-              )
-            }
-          />
-          <Chart
-            title="Grant status"
-            href="/grants"
-            values={
-              d.dashboardSummary?.charts?.grantStatus ??
-              count(d.grants.map((g) => g.status))
-            }
-          />
-          <Chart
-            title="P3H onboarding by month"
-            href="/members"
-            values={
-              d.dashboardSummary?.charts?.onboarding ??
-              count(
-                members.flatMap((p) =>
-                  p.onboardingDate ? [p.onboardingDate.slice(0, 7)] : [],
-                ),
-              )
-            }
-          />
-        </div>
+        {chartsOpen && (
+          <div className="chart-grid">
+            <Chart
+              horizontal
+              title="Care recipients by condition"
+              href="/care-recipients"
+              values={
+                d.dashboardSummary?.conditions ??
+                count(
+                  recipients.flatMap((p) =>
+                    p.conditions.map((x) => x.condition.name),
+                  ),
+                )
+              }
+            />
+            <Chart
+              horizontal
+              title="Caregiver preferred language"
+              href="/members"
+              values={
+                d.dashboardSummary?.charts?.languages ??
+                count(members.map((p) => p.preferredLanguage || "Not recorded"))
+              }
+            />
+            <Chart
+              horizontal
+              title="Overdue follow-ups by staff"
+              href="/alerts?time=Overdue"
+              values={
+                d.dashboardSummary?.charts?.overdueStaff ??
+                count(
+                  pending
+                    .filter(
+                      (a) =>
+                        a.type.startsWith("Grant") &&
+                        alertGroup(a) === "Overdue",
+                    )
+                    .map((a) => a.assigned?.name ?? "Unassigned"),
+                )
+              }
+            />
+            <Chart
+              title="Grant status"
+              href="/grants"
+              values={
+                d.dashboardSummary?.charts?.grantStatus ??
+                count(d.grants.map((g) => g.status))
+              }
+            />
+            <Chart
+              title="P3H onboarding by month"
+              href="/members"
+              values={
+                d.dashboardSummary?.charts?.onboarding ??
+                count(
+                  members.flatMap((p) =>
+                    p.onboardingDate ? [p.onboardingDate.slice(0, 7)] : [],
+                  ),
+                )
+              }
+            />
+          </div>
+        )}
       </details>
     </>
   );

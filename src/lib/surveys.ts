@@ -25,6 +25,7 @@ import {
   SURVEY_METHOD,
   surveyDay,
 } from "./survey-scoring";
+import { ncssImportMode, ncssMemberId } from "./ncss-matched-csv";
 import { searchText } from "./query";
 
 type Tx = Prisma.TransactionClient;
@@ -44,11 +45,11 @@ export const surveyFilesInput = z.object({
 export { surveyScope } from "./access";
 export const surveyListSelect = {
   id: true,
+  rowNumber: true,
+  importMode: true,
   centre: true,
   language: true,
-  cleanedName: true,
   surveyDate: true,
-  dobText: true,
   phase: true,
   personId: true,
   confirmedMemberId: true,
@@ -62,9 +63,23 @@ export const surveyListSelect = {
   overall: true,
   zbi: true,
   updatedAt: true,
-  person: { select: { name: true, memberId: true } },
 } as const;
-async function currentWriter(tx: Tx, u: AccessUser, manager = false) {
+const stagedNames = {
+  submittedName: true,
+  cleanedName: true,
+  correctedName: true,
+} as const;
+const caritaHubMethod = "CaritaHub (staff confirmed)";
+const birthDateConflict = (
+  member: Date | null,
+  stage: Date | null | undefined,
+) =>
+  Boolean(
+    member &&
+    stage &&
+    member.toISOString().slice(0, 10) !== stage.toISOString().slice(0, 10),
+  );
+export async function currentWriter(tx: Tx, u: AccessUser, manager = false) {
   const actor = await tx.user.findUnique({
     where: { id: u.id },
     include: { allowedCentres: true },
@@ -73,11 +88,7 @@ async function currentWriter(tx: Tx, u: AccessUser, manager = false) {
     throw new Error("Your role does not permit this action.");
   return actor;
 }
-export async function previewSurveys(
-  u: AccessUser,
-  input: unknown,
-  tx: Tx = db,
-) {
+async function prepareSurveys(u: AccessUser, input: unknown, tx: Tx = db) {
   const body = surveyFilesInput.parse(input);
   if (!can(u.role, "write"))
     throw new Error("Your role does not permit this action.");
@@ -94,9 +105,13 @@ export async function previewSurveys(
   }));
   if (files.reduce((n, f) => n + f.rows.length, 0) > 5000)
     throw new Error("Import at most 5,000 responses at a time.");
-  const keys = files.flatMap((f) =>
-    f.rows.flatMap((r) => (r.sourceKey ? [r.sourceKey] : [])),
-  );
+  const keys = [
+    ...new Set(
+      files.flatMap((f) =>
+        f.rows.flatMap((r) => (r.sourceKey ? [r.sourceKey] : [])),
+      ),
+    ),
+  ];
   // Chunk lookups also work with SQLite's bound-parameter limits.
   const existing = [];
   for (let i = 0; i < keys.length; i += 300)
@@ -107,10 +122,7 @@ export async function previewSurveys(
           id: true,
           sourceKey: true,
           contentHash: true,
-<<<<<<< HEAD
           deletedAt: true,
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
           centre: true,
           person: { select: { centre: true } },
         },
@@ -125,12 +137,9 @@ export async function previewSurveys(
   )
     throw new Error("Your centre permissions do not permit this record.");
   const seen = new Map(existing.map((r) => [r.sourceKey, r.contentHash]));
-<<<<<<< HEAD
   const trashed = new Set(
     existing.filter((r) => r.deletedAt).map((r) => r.sourceKey),
   );
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
   return {
     centre: body.centre,
     files: files.map((f) => ({
@@ -140,12 +149,9 @@ export async function previewSurveys(
         const prior = r.sourceKey ? seen.get(r.sourceKey) : undefined;
         const disposition =
           r.exclusion ||
-<<<<<<< HEAD
           (r.sourceKey && trashed.has(r.sourceKey)
-            ? "In Trash ? restore the original record"
+            ? "In Trash. Restore the original record."
             : "") ||
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
           (prior
             ? prior === r.contentHash
               ? "Already imported"
@@ -157,8 +163,37 @@ export async function previewSurveys(
     })),
   };
 }
+export async function previewSurveys(u: AccessUser, input: unknown) {
+  const preview = await prepareSurveys(u, input);
+  return {
+    centre: preview.centre,
+    files: preview.files.map((file) => ({
+      name: file.name,
+      language: file.language,
+      rows: file.rows.map(
+        ({
+          rowNumber,
+          exclusion,
+          disposition,
+          warnings,
+          scores,
+          surveyDate,
+          phase,
+        }) => ({
+          rowNumber,
+          exclusion,
+          disposition,
+          warnings,
+          scores,
+          surveyDate,
+          phase,
+        }),
+      ),
+    })),
+  };
+}
 export function importSummary(
-  rows: Awaited<ReturnType<typeof previewSurveys>>["files"][number]["rows"],
+  rows: Awaited<ReturnType<typeof prepareSurveys>>["files"][number]["rows"],
 ) {
   return {
     submitted: rows.length,
@@ -166,15 +201,11 @@ export function importSummary(
     consentExcluded: rows.filter((r) => r.exclusion === "Consent not granted")
       .length,
     testExcluded: rows.filter((r) => r.exclusion === "Test record").length,
-<<<<<<< HEAD
     duplicates: rows.filter(
       (r) =>
         r.disposition === "Already imported" ||
         r.disposition.startsWith("In Trash"),
     ).length,
-=======
-    duplicates: rows.filter((r) => r.disposition === "Already imported").length,
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
     conflicts: rows.filter((r) => r.disposition.startsWith("Source conflict"))
       .length,
     identityReview: rows.filter(
@@ -186,7 +217,7 @@ export function importSummary(
 }
 export async function importSurveys(tx: Tx, u: AccessUser, input: unknown) {
   const actor = await currentWriter(tx, u),
-    preview = await previewSurveys(actor, input, tx);
+    preview = await prepareSurveys(actor, input, tx);
   const batches = [];
   for (const file of preview.files) {
     const summary = importSummary(file.rows);
@@ -206,6 +237,11 @@ export async function importSurveys(tx: Tx, u: AccessUser, input: unknown) {
         },
       },
     });
+    const responses: Prisma.SurveyResponseCreateManyInput[] = [];
+    const identifiers = new Map<
+      string,
+      Omit<Prisma.SurveyIdentityStageCreateManyInput, "responseId">
+    >();
     for (const r of file.rows) {
       if (
         !r.sourceKey ||
@@ -222,34 +258,50 @@ export async function importSurveys(tx: Tx, u: AccessUser, input: unknown) {
         zbi,
         method,
       } = r.scores;
-      await tx.surveyResponse.create({
-        data: {
-          batchId: batch.id,
-          sourceKey: r.sourceKey,
-          contentHash: r.contentHash!,
-          sourceResponseId: r.sourceResponseId!,
-          rowNumber: r.rowNumber,
-          centre: preview.centre,
-          language: file.language,
-          submittedName: r.submittedName!,
-          cleanedName: r.cleanedName!,
-          timestampText: r.timestampText!,
-          surveyDate: r.surveyDate ? new Date(r.surveyDate) : null,
-          dobText: r.dobText!,
-          dob: r.dob ? new Date(r.dob) : null,
-          phaseText: r.phaseText!,
-          phase: r.phase!,
-          rawAnswers: r.answers!,
-          answers: r.answers!,
-          warnings: r.warnings!,
-          physical,
-          psychological,
-          social,
-          environment,
-          overall,
-          zbi,
-          method,
-        },
+      responses.push({
+        batchId: batch.id,
+        sourceKey: r.sourceKey,
+        contentHash: r.contentHash!,
+        sourceResponseId: r.sourceResponseId!,
+        rowNumber: r.rowNumber,
+        centre: preview.centre,
+        language: file.language,
+        submittedName: "",
+        cleanedName: "",
+        timestampText: r.timestampText!,
+        surveyDate: r.surveyDate ? new Date(r.surveyDate) : null,
+        phaseText: r.phaseText!,
+        phase: r.phase!,
+        rawAnswers: r.answers!,
+        answers: r.answers!,
+        warnings: r.warnings!,
+        physical,
+        psychological,
+        social,
+        environment,
+        overall,
+        zbi,
+        method,
+      });
+      identifiers.set(r.sourceKey, {
+        submittedName: r.submittedName!,
+        cleanedName: r.cleanedName!,
+        dobText: r.dobText!,
+        dob: r.dob ? new Date(r.dob) : null,
+        nameHistory: [],
+      });
+    }
+    // Keep inserts bounded while preserving a single transaction for every file.
+    for (let i = 0; i < responses.length; i += 50) {
+      const saved = await tx.surveyResponse.createManyAndReturn({
+        data: responses.slice(i, i + 50),
+        select: { id: true, sourceKey: true },
+      });
+      await tx.surveyIdentityStage.createMany({
+        data: saved.map((row) => ({
+          responseId: row.id,
+          ...identifiers.get(row.sourceKey)!,
+        })),
       });
     }
     await audit(
@@ -273,168 +325,244 @@ export async function importSurveys(tx: Tx, u: AccessUser, input: unknown) {
 async function responseFor(tx: Tx, u: AccessUser, id: string) {
   const r = await tx.surveyResponse.findFirst({
     where: { AND: [surveyScope(u), { id }] },
-    include: {
-      reviews: { orderBy: { reviewedAt: "desc" } },
-      person: { select: { name: true, memberId: true, dob: true } },
+    select: {
+      ...surveyListSelect,
+      identityStage: true,
+      timestampText: true,
+      phaseText: true,
+      rawAnswers: true,
+      answers: true,
     },
   });
   if (!r) throw new Error("Your centre permissions do not permit this record.");
   return r;
 }
-export async function surveyDetail(u: AccessUser, id: string) {
-  const response = await responseFor(db, u, id);
-  const corrections = await db.auditLog.findMany({
-    where: {
-      entityType: "SurveyResponse",
-      entityId: id,
-      action: "Survey correction",
-    },
-    select: {
-      id: true,
-      action: true,
-      timestamp: true,
-      changes: true,
-      user: { select: { name: true } },
-    },
-    orderBy: [{ timestamp: "desc" }, { id: "desc" }],
-  });
-  return { ...response, corrections };
-}
-export async function surveyCandidates(u: AccessUser, id: string, q: string) {
-  if (!can(u.role, "write"))
+const nameCorrectionAction = "Survey name corrected";
+const nameReversalAction = "Survey name correction reversed";
+
+const stagedNameHistory = z.array(
+  z.object({
+    staffId: z.string(),
+    timestamp: z.string(),
+    previous: z.string().nullable(),
+    corrected: z.string().nullable(),
+    notes: z.string(),
+  }),
+);
+
+export async function surveyDetail(
+  u: AccessUser,
+  id: string,
+  identity = false,
+) {
+  if (identity && !can(u.role, "write"))
     throw new Error("Your role does not permit this action.");
-  const r = await responseFor(db, u, id),
-    alias = normaliseAlias(r.cleanedName);
-  const search = q.trim().slice(0, 150),
-    tokens = r.cleanedName
-      .split(/\s+/)
-      .filter((s) => s.length > 1)
-      .slice(0, 4);
-  const where: Prisma.PersonWhereInput = {
-    AND: [
-      personScope(u),
-      {
-        kind: "Member",
-        centre: r.centre,
-        memberId: { not: null },
-        status: { not: "Archived" },
-      },
-      {
-        OR: search
-          ? [
-              { memberId: searchText(search) },
-              { name: searchText(search) },
-              { alias: searchText(search) },
-              { contactNumber: searchText(search) },
-              ...(surveyDate(search)
-                ? [{ dob: new Date(surveyDate(search)!) }]
-                : []),
-              ...(normaliseAlias(search)
-                ? [
-                    {
-                      verifiedAliases: {
-                        some: {
-                          verified: true,
-                          normalized: { contains: normaliseAlias(search) },
-                        },
-                      },
-                    },
-                  ]
-                : []),
-            ]
-          : [
-              {
-                verifiedAliases: {
-                  some: { normalized: alias || "__empty__", verified: true },
-                },
-              },
-              ...tokens.map((t) => ({ name: searchText(t) })),
-              { memberId: r.submittedName },
-            ],
-      },
-    ],
-  };
-  const select = {
-    id: true,
-    memberId: true,
-    name: true,
-    alias: true,
-    dob: true,
-    contactNumber: true,
-    centre: true,
-    verifiedAliases: {
-      where: { verified: true },
-      select: { text: true, normalized: true },
-    },
-  } as const;
-  const base = (where.AND as Prisma.PersonWhereInput[]).slice(0, 2);
-  const strongAlias = normaliseAlias(search) || (!search ? alias : "");
-  const strong = await db.person.findMany({
-    where: {
-      AND: [
-        ...base,
-        {
-          OR: [
-            { memberId: search || r.submittedName },
-            ...(strongAlias
-              ? [
-                  {
-                    verifiedAliases: {
-                      some: { verified: true, normalized: strongAlias },
-                    },
-                  },
-                ]
-              : []),
-          ],
+  if (!identity) {
+    const publicRecord = await db.surveyResponse.findFirst({
+      where: { AND: [surveyScope(u), { id }] },
+      select: surveyListSelect,
+    });
+    if (!publicRecord)
+      throw new Error("Your centre permissions do not permit this record.");
+    return {
+      ...publicRecord,
+      timestampText: "",
+      phaseText: "",
+      rawAnswers: null as Prisma.JsonValue,
+      answers: null as Prisma.JsonValue,
+      identity: null,
+      canReassign: false,
+    };
+  }
+  const { identityStage: stage, ...response } = await responseFor(db, u, id);
+  const [corrections, reviews] = await Promise.all([
+    db.auditLog.findMany({
+      where: {
+        entityType: "SurveyResponse",
+        entityId: id,
+        action: {
+          in: ["Survey correction", nameCorrectionAction, nameReversalAction],
         },
+      },
+      select: {
+        id: true,
+        action: true,
+        timestamp: true,
+        changes: true,
+        user: { select: { name: true } },
+      },
+      orderBy: [{ timestamp: "desc" }, { id: "desc" }],
+    }),
+    db.surveyIdentityReview.findMany({
+      where: { responseId: id },
+      orderBy: [{ reviewedAt: "desc" }, { id: "desc" }],
+    }),
+  ]);
+  const stagedHistory = stagedNameHistory.parse(stage?.nameHistory ?? []);
+  const staffIds = [
+    ...new Set([
+      ...reviews.map((r) => r.reviewedBy),
+      ...stagedHistory.map((r) => r.staffId),
+    ]),
+  ];
+  const staff = await db.user.findMany({
+    where: { id: { in: staffIds } },
+    select: { id: true, name: true },
+  });
+  const names = new Map(staff.map((person) => [person.id, person.name]));
+  const legacyNameHistory = corrections.flatMap((entry) => {
+    if (entry.action === "Survey correction") return [];
+    const event = entry.changes as {
+      before?: { correctedName?: string };
+      after?: { correctedName?: string; notes?: string };
+    };
+    // Current central audit entries contain metadata only. Older entries retain
+    // their historical details, available exclusively from this restricted view.
+    if (!event.after || !Object.hasOwn(event.after, "correctedName")) return [];
+    return [
+      {
+        id: entry.id,
+        timestamp: entry.timestamp,
+        reviewerName: entry.user.name,
+        previous: event.before?.correctedName ?? null,
+        corrected: event.after.correctedName ?? null,
+        notes: event.after.notes ?? "",
+      },
+    ];
+  });
+  return {
+    ...response,
+    canReassign: response.importMode === ncssImportMode && can(u.role, "admin"),
+    identity: {
+      submittedName: stage?.submittedName ?? "",
+      cleanedName: stage?.cleanedName ?? "",
+      correctedName: stage?.correctedName ?? null,
+      dobText: stage?.dobText ?? "",
+      dob: stage?.dob ?? null,
+      reviews: reviews.map((review) => ({
+        ...review,
+        reviewerName: names.get(review.reviewedBy) || review.reviewedBy,
+      })),
+      corrections: corrections.filter(
+        (entry) => entry.action === "Survey correction",
+      ),
+      nameHistory: [
+        ...stagedHistory.toReversed().map((event) => ({
+          ...event,
+          id: event.timestamp,
+          timestamp: new Date(event.timestamp),
+          reviewerName: names.get(event.staffId) ?? event.staffId,
+        })),
+        ...legacyNameHistory,
       ],
     },
-    take: 20,
-    select,
-    orderBy: [{ memberId: "asc" }, { id: "asc" }],
-  });
-  const others =
-    strong.length < 20
-      ? await db.person.findMany({
-          where: { AND: [where, { id: { notIn: strong.map((p) => p.id) } }] },
-          take: 20 - strong.length,
-          select,
-          orderBy: [{ memberId: "asc" }, { id: "asc" }],
-        })
-      : [];
-  const rows = [...strong, ...others];
-  return {
-    rows: rows.map((p) => ({
-      ...p,
-      evidence: [
-        p.memberId === r.submittedName && "Exact submitted Member ID",
-        p.verifiedAliases.some((a) => a.normalized === alias) &&
-          "Verified alias matches",
-        normaliseAlias(p.name) === alias &&
-          "Name resembles submission (not verified)",
-        p.dob &&
-          r.dob &&
-          p.dob.toISOString().slice(0, 10) ===
-            r.dob.toISOString().slice(0, 10) &&
-          "Birth date agrees",
-      ].filter(Boolean),
-      conflicts:
-        p.dob &&
-        r.dob &&
-        p.dob.toISOString().slice(0, 10) !== r.dob.toISOString().slice(0, 10)
-          ? ["Birth date differs — verify identity"]
-          : [],
-    })),
   };
 }
+
+const surveyMemberId = z.string().trim().min(1).max(150);
+const missingMember =
+  "Member ID not found in this survey’s centre. The survey remains unmatched.";
+
+async function findSurveyMember(
+  tx: Tx,
+  actor: AccessUser,
+  centre: string,
+  memberId: string,
+) {
+  const member = await tx.person.findFirst({
+    where: {
+      AND: [
+        personScope(actor),
+        { kind: "Member", centre, memberId, status: { not: "Archived" } },
+      ],
+    },
+    select: { id: true, memberId: true, centre: true, status: true, dob: true },
+  });
+  if (!member?.memberId) throw new Error(missingMember);
+  return { ...member, memberId: member.memberId };
+}
+
+async function findActiveNCSSMember(
+  tx: Tx,
+  actor: AccessUser,
+  centre: string,
+  memberId: string,
+) {
+  if (!ncssMemberId.test(memberId)) throw new Error("Enter a valid Member ID.");
+  const member = await tx.person.findFirst({
+    where: {
+      AND: [
+        personScope(actor),
+        { kind: "Member", centre, memberId, status: "Active" },
+      ],
+    },
+    select: { id: true, memberId: true, centre: true, status: true },
+  });
+  if (!member?.memberId)
+    throw new Error(
+      "Member ID is unavailable in this import centre. Check the verified mapping.",
+    );
+  return { ...member, memberId: member.memberId, birthDateConflict: false };
+}
+
+export async function lookupSurveyMember(u: AccessUser, input: unknown) {
+  if (!can(u.role, "write"))
+    throw new Error("Your role does not permit this action.");
+  const { id, memberId } = z
+    .object({ id: z.string().min(1), memberId: surveyMemberId })
+    .parse(input);
+  const response = await db.surveyResponse.findFirst({
+    where: { AND: [surveyScope(u), { id }] },
+    select: {
+      centre: true,
+      importMode: true,
+      personId: true,
+      identityStage: { select: { dob: true } },
+    },
+  });
+  if (!response)
+    throw new Error("Your centre permissions do not permit this record.");
+  if (response.importMode === ncssImportMode) {
+    if (!can(u.role, "admin"))
+      throw new Error("Your role does not permit this action.");
+    const member = await findActiveNCSSMember(db, u, response.centre, memberId);
+    if (member.id === response.personId)
+      throw new Error("This survey already belongs to that Member ID.");
+    return member;
+  }
+  if (response.personId)
+    throw new Error("This survey already has a verified member.");
+  const member = await findSurveyMember(db, u, response.centre, memberId);
+  return {
+    id: member.id,
+    memberId: member.memberId,
+    centre: member.centre,
+    status: member.status,
+    birthDateConflict: birthDateConflict(
+      member.dob,
+      response.identityStage?.dob,
+    ),
+  };
+}
+
 export const surveyActionInput = z.object({
-  action: z.enum(["link", "unlink", "correct", "ambiguous"]),
+  action: z.enum([
+    "link",
+    "unlink",
+    "correct",
+    "ambiguous",
+    "reject",
+    "correct-name",
+    "reassign-import",
+  ]),
   id: z.string(),
   version: z.string(),
   personId: z.string().optional(),
+  memberId: surveyMemberId.optional(),
+  verificationMethod: z.literal("CaritaHub").optional(),
   confirmed: z.boolean().default(false),
-  saveAlias: z.boolean().default(false),
-  notes: z.string().trim().min(1).max(2000),
+  notes: z.string().trim().max(2000).default(""),
+  correctedName: z.string().max(150).nullable().optional(),
   phase: z.enum(surveyPhases).optional(),
   surveyDate: z.string().optional(),
   dob: z.string().optional(),
@@ -446,8 +574,21 @@ export async function updateSurvey(tx: Tx, u: AccessUser, input: unknown) {
   const v = surveyActionInput.parse(input),
     actor = await currentWriter(tx, u, v.action === "unlink"),
     r = await responseFor(tx, actor, v.id);
+  const stage = r.identityStage;
+  const matchedImport = r.importMode === ncssImportMode;
+  if (
+    v.action === "reassign-import" &&
+    (!matchedImport || !can(actor.role, "admin"))
+  )
+    throw new Error("Your role does not permit this action.");
+  if (matchedImport && v.action !== "reassign-import")
+    throw new Error(
+      "An administrator must confirm a replacement Member ID for this survey.",
+    );
   if (r.updatedAt.toISOString() !== v.version)
     throw new Error("This survey changed. Reload before saving.");
+  if (v.action !== "correct-name" && !v.notes)
+    throw new Error("Enter the review notes before saving.");
   const at = new Date(Math.max(Date.now(), r.updatedAt.getTime() + 1));
   const claim = await tx.surveyResponse.updateMany({
     where: { id: r.id, updatedAt: r.updatedAt },
@@ -455,28 +596,111 @@ export async function updateSurvey(tx: Tx, u: AccessUser, input: unknown) {
   });
   if (claim.count !== 1)
     throw new Error("This survey changed. Reload before saving.");
-  if (v.action === "link") {
-    if (!v.confirmed || r.personId)
+  if (v.action === "reassign-import") {
+    if (!v.confirmed || !v.memberId || !v.personId)
+      throw new Error("Check and confirm the replacement Member ID.");
+    const member = await findActiveNCSSMember(tx, actor, r.centre, v.memberId);
+    if (member.id !== v.personId || member.id === r.personId)
+      throw new Error("Check the replacement Member ID again.");
+    await tx.surveyResponse.update({
+      where: { id: r.id },
+      data: {
+        personId: member.id,
+        confirmedMemberId: member.memberId,
+        updatedAt: at,
+      },
+    });
+    await tx.surveyIdentityReview.createMany({
+      data: [
+        {
+          responseId: r.id,
+          personId: r.personId,
+          memberId: r.confirmedMemberId,
+          action: "Reassigned from",
+          method: ncssImportMode,
+          reviewedBy: actor.id,
+          notes: v.notes,
+        },
+        {
+          responseId: r.id,
+          personId: member.id,
+          memberId: member.memberId,
+          action: "Reassigned to",
+          method: ncssImportMode,
+          reviewedBy: actor.id,
+          notes: v.notes,
+        },
+      ],
+    });
+    await audit(
+      tx,
+      actor.id,
+      "NCSS survey Member ID corrected",
+      "SurveyResponse",
+      r.id,
+      { personId: r.personId, memberId: r.confirmedMemberId },
+      { personId: member.id, memberId: member.memberId },
+    );
+    return { id: r.id, memberId: member.memberId };
+  }
+  if (v.action === "correct-name") {
+    if (!stage) throw new Error("This survey has no staged name to edit.");
+    if (v.correctedName === undefined)
+      throw new Error("Enter a corrected name.");
+    const name =
+      v.correctedName?.normalize("NFKC").trim().replace(/\s+/g, " ") ?? null;
+    if (
+      name !== null &&
+      (!/\p{L}/u.test(name) || /[\p{N}\p{Cc}]/u.test(name) || name.length > 150)
+    )
       throw new Error(
-        "Confirm identity first. A linked survey must be unlinked by a manager before reassignment.",
+        "Enter a name with letters and no numbers or control characters.",
       );
-    const p = await tx.person.findFirst({
-      where: {
-        AND: [
-          personScope(actor),
+    if (
+      name === stage.correctedName ||
+      (name !== null &&
+        name === stage.submittedName &&
+        stage.correctedName === null)
+    )
+      throw new Error("The name is already up to date.");
+    await tx.surveyIdentityStage.update({
+      where: { responseId: r.id },
+      data: {
+        correctedName: name,
+        nameHistory: [
+          ...stagedNameHistory.parse(stage.nameHistory),
           {
-            id: v.personId || "",
-            kind: "Member",
-            centre: r.centre,
-            memberId: { not: null },
-            status: { not: "Archived" },
+            staffId: actor.id,
+            timestamp: at.toISOString(),
+            previous: stage.correctedName,
+            corrected: name,
+            notes: v.notes,
           },
         ],
       },
     });
-    if (!p?.memberId)
+    await audit(
+      tx,
+      actor.id,
+      name === null ? nameReversalAction : nameCorrectionAction,
+      "SurveyResponse",
+      r.id,
+      null,
+      { hasCorrection: name !== null },
+    );
+  } else if (v.action === "link") {
+    if (!v.confirmed || v.verificationMethod !== "CaritaHub" || r.personId)
       throw new Error(
-        "Select a caregiver with a Member ID in the survey centre.",
+        "Confirm identity in CaritaHub first. A linked survey must be unlinked by a manager before reassignment.",
+      );
+    if (!v.memberId || !v.personId)
+      throw new Error(
+        "Check the verified Member ID before confirming the match.",
+      );
+    const p = await findSurveyMember(tx, actor, r.centre, v.memberId);
+    if (v.personId !== p.id)
+      throw new Error(
+        "This caregiver’s Member ID changed. Find the caregiver again.",
       );
     await tx.surveyResponse.update({
       where: { id: r.id },
@@ -486,9 +710,7 @@ export async function updateSurvey(tx: Tx, u: AccessUser, input: unknown) {
         matchStatus: "Linked",
         warnings: [
           ...(Array.isArray(r.warnings) ? r.warnings.map(String) : []),
-          ...(p.dob &&
-          r.dob &&
-          p.dob.toISOString().slice(0, 10) !== r.dob.toISOString().slice(0, 10)
+          ...(birthDateConflict(p.dob, stage?.dob)
             ? [
                 "Birth date differs from verified caregiver record; identity was manually confirmed",
               ]
@@ -497,29 +719,13 @@ export async function updateSurvey(tx: Tx, u: AccessUser, input: unknown) {
         updatedAt: at,
       },
     });
-    if (v.saveAlias && normaliseAlias(r.cleanedName))
-      await tx.personAlias.upsert({
-        where: {
-          personId_normalized: {
-            personId: p.id,
-            normalized: normaliseAlias(r.cleanedName),
-          },
-        },
-        create: {
-          personId: p.id,
-          text: r.cleanedName,
-          normalized: normaliseAlias(r.cleanedName),
-          verifiedBy: actor.id,
-          source: `Survey ${r.id}`,
-        },
-        update: { verified: true, verifiedBy: actor.id, verifiedAt: at },
-      });
     await tx.surveyIdentityReview.create({
       data: {
         responseId: r.id,
         personId: p.id,
         memberId: p.memberId,
         action: "Linked",
+        method: caritaHubMethod,
         reviewedBy: actor.id,
         notes: v.notes,
       },
@@ -531,12 +737,7 @@ export async function updateSurvey(tx: Tx, u: AccessUser, input: unknown) {
       "SurveyResponse",
       r.id,
       { personId: null },
-      {
-        personId: p.id,
-        memberId: p.memberId,
-        notes: v.notes,
-        savedAlias: v.saveAlias,
-      },
+      { personId: p.id, method: caritaHubMethod },
     );
   } else if (v.action === "unlink") {
     if (!r.personId || !v.confirmed)
@@ -571,9 +772,9 @@ export async function updateSurvey(tx: Tx, u: AccessUser, input: unknown) {
       "SurveyResponse",
       r.id,
       { personId: r.personId },
-      { personId: null, notes: v.notes },
+      { personId: null },
     );
-  } else if (v.action === "ambiguous") {
+  } else if (v.action === "ambiguous" || v.action === "reject") {
     if (r.personId)
       throw new Error(
         "A linked survey must be unlinked before identity review.",
@@ -585,7 +786,7 @@ export async function updateSurvey(tx: Tx, u: AccessUser, input: unknown) {
     await tx.surveyIdentityReview.create({
       data: {
         responseId: r.id,
-        action: "Ambiguous",
+        action: v.action === "reject" ? "Rejected" : "Ambiguous",
         reviewedBy: actor.id,
         notes: v.notes,
       },
@@ -593,11 +794,13 @@ export async function updateSurvey(tx: Tx, u: AccessUser, input: unknown) {
     await audit(
       tx,
       actor.id,
-      "Survey identity needs review",
+      v.action === "reject"
+        ? "Survey identity rejected"
+        : "Survey identity needs review",
       "SurveyResponse",
       r.id,
       { matchStatus: r.matchStatus },
-      { matchStatus: "Ambiguous", notes: v.notes },
+      { matchStatus: "Ambiguous" },
     );
   } else {
     const answers = { ...(r.answers as Record<string, unknown>) };
@@ -617,7 +820,14 @@ export async function updateSurvey(tx: Tx, u: AccessUser, input: unknown) {
         : v.surveyDate
           ? surveyDate(v.surveyDate, true)
           : null;
-    const dob = v.dob === undefined ? r.dob : v.dob ? surveyDate(v.dob) : null;
+    const dob =
+      v.dob === undefined
+        ? (stage?.dob ?? null)
+        : v.dob
+          ? surveyDate(v.dob)
+          : null;
+    if (v.dob !== undefined && !stage)
+      throw new Error("This survey has no staged birth date to edit.");
     if ((v.surveyDate && !date) || (v.dob && !dob))
       throw new Error(
         "Enter valid dates. A timestamp requires an explicit offset or Singapore date and time.",
@@ -626,11 +836,16 @@ export async function updateSurvey(tx: Tx, u: AccessUser, input: unknown) {
       phase = v.phase ?? r.phase;
     const data = {
       surveyDate: date ? new Date(date) : null,
-      dob: dob ? new Date(dob) : null,
       phase,
       answers: answers as Prisma.InputJsonObject,
       warnings: [
-        ...metadataWarnings({ ...r, surveyDate: date, dob, phase }),
+        ...metadataWarnings({
+          cleanedName: stage?.cleanedName ?? "",
+          dobText: stage?.dobText ?? "",
+          surveyDate: date,
+          dob,
+          phase,
+        }),
         ...scores.warnings,
       ],
       physical: scores.physical,
@@ -643,6 +858,11 @@ export async function updateSurvey(tx: Tx, u: AccessUser, input: unknown) {
       updatedAt: at,
     };
     await tx.surveyResponse.update({ where: { id: r.id }, data });
+    if (v.dob !== undefined)
+      await tx.surveyIdentityStage.update({
+        where: { responseId: r.id },
+        data: { dob: dob ? new Date(dob) : null },
+      });
     await audit(
       tx,
       actor.id,
@@ -652,7 +872,6 @@ export async function updateSurvey(tx: Tx, u: AccessUser, input: unknown) {
       {
         phase: r.phase,
         surveyDate: r.surveyDate,
-        dob: r.dob,
         answers: r.answers,
       },
       { ...data, notes: v.notes },
@@ -713,11 +932,19 @@ export function surveyFilters(u: AccessUser, f: Record<string, string>) {
   if (f.centre) and.push({ centre: f.centre });
   if (f.language) and.push({ language: f.language });
   if (f.phase) and.push({ phase: f.phase });
+  if (f.batch) and.push({ batchId: f.batch });
   if (f.match === "Unmatched") and.push({ personId: null });
-  else if (f.match) and.push({ matchStatus: f.match });
+  else if (f.match === "Corrected")
+    and.push({ identityStage: { is: { correctedName: { not: null } } } });
+  else if (f.match === "Verified") and.push({ matchStatus: "Linked" });
+  else if (f.match && f.match !== "Needs Review")
+    and.push({ matchStatus: f.match });
   if (f.personId) and.push({ personId: f.personId });
   if (f.quality === "warnings") and.push({ NOT: { warnings: { equals: [] } } });
-  if (f.review === "1")
+  if (f.quality === "timestamp") and.push({ surveyDate: null });
+  if (f.quality === "whoqol") and.push({ overall: null });
+  if (f.quality === "phase") and.push({ phase: "Needs Review" });
+  if (f.review === "1" || f.match === "Needs Review")
     and.push({
       OR: [
         { matchStatus: { not: "Linked" } },
@@ -740,13 +967,37 @@ export function surveyFilters(u: AccessUser, f: Record<string, string>) {
   if (f.q)
     and.push({
       OR: [
-        { cleanedName: searchText(f.q.slice(0, 150)) },
+        { id: searchText(f.q.slice(0, 150)) },
         { confirmedMemberId: searchText(f.q.slice(0, 150)) },
       ],
     });
   return { AND: and };
 }
-export async function listSurveys(u: AccessUser, f: Record<string, string>) {
+export async function nextSurveyForReview(
+  u: AccessUser,
+  f: Record<string, string>,
+) {
+  if (!can(u.role, "write"))
+    throw new Error("Your role does not permit this action.");
+  return db.surveyResponse.findFirst({
+    where: {
+      AND: [
+        surveyFilters(u, f),
+        { personId: null },
+        ...(f.after ? [{ id: { gt: f.after } }] : []),
+      ],
+    },
+    orderBy: { id: "asc" },
+    select: { id: true },
+  });
+}
+export async function listSurveys(
+  u: AccessUser,
+  f: Record<string, string>,
+  identity = false,
+) {
+  if (identity && !can(u.role, "write"))
+    throw new Error("Your role does not permit this action.");
   if (
     f.personId &&
     !(await db.person.findFirst({
@@ -762,24 +1013,34 @@ export async function listSurveys(u: AccessUser, f: Record<string, string>) {
     Math.max(1, Math.floor(Number(f.page)) || 1),
     Math.max(1, Math.ceil(total / size)),
   );
+  const direction = f.direction === "asc" ? "asc" : "desc";
+  const order: Prisma.SurveyResponseOrderByWithRelationInput =
+    f.sort === "phase"
+      ? { phase: direction }
+      : {
+          surveyDate:
+            f.sort === "date" ? direction : f.personId ? "asc" : "desc",
+        };
   const [rows, aliases, centres] = await Promise.all([
     db.surveyResponse.findMany({
       where,
-      select: surveyListSelect,
+      select: {
+        ...surveyListSelect,
+        identityStage: identity ? { select: stagedNames } : false,
+      },
       take: size,
       skip: (page - 1) * size,
-      orderBy: [{ surveyDate: f.personId ? "asc" : "desc" }, { id: "asc" }],
+      orderBy: [order, { id: "asc" }],
     }),
-    f.personId
+    f.personId && can(u.role, "write")
       ? db.personAlias.findMany({
           where: { personId: f.personId },
           orderBy: { text: "asc" },
         })
       : [],
-    db.person.findMany({
+    db.person.groupBy({
+      by: ["centre"],
       where: personScope(u),
-      distinct: ["centre"],
-      select: { centre: true },
       orderBy: { centre: "asc" },
     }),
   ]);
@@ -821,7 +1082,7 @@ export function surveyStatistics(
     valid = linked.filter(
       (r) =>
         r.surveyDate &&
-        ["Baseline", "Annual"].includes(r.phase) &&
+        ["Baseline", "Annual", "Follow-up"].includes(r.phase) &&
         r.method === SURVEY_METHOD,
     );
   const means = Object.fromEntries(
@@ -839,15 +1100,18 @@ export function surveyStatistics(
     }),
   );
   const groups = new Map<string, typeof valid>();
-  for (const r of valid)
-    groups.set(r.personId!, [...(groups.get(r.personId!) || []), r]);
+  for (const r of valid) {
+    const group = groups.get(r.personId!);
+    if (group) group.push(r);
+    else groups.set(r.personId!, [r]);
+  }
   const pairs = [...groups.values()].flatMap((items) => {
     const sorted = [...items].sort(
       (a, b) => a.surveyDate!.getTime() - b.surveyDate!.getTime(),
     );
     const baselines = sorted.filter((r) => r.phase === "Baseline");
     const first = baselines.length === 1 ? baselines[0] : undefined,
-      last = sorted.findLast((r) => r.phase === "Annual");
+      last = sorted.findLast((r) => ["Annual", "Follow-up"].includes(r.phase));
     return first &&
       last &&
       surveyDay(first.surveyDate!) < surveyDay(last.surveyDate!)
@@ -876,6 +1140,9 @@ export function surveyStatistics(
   );
   return {
     responses: rows.length,
+    completeResponses: rows.filter(
+      (row) => row.overall !== null && row.zbi !== null,
+    ).length,
     linked: linked.length,
     unmatched: rows.length - linked.length,
     invalid: rows.filter((r) => Array.isArray(r.warnings) && r.warnings.length)
@@ -911,24 +1178,155 @@ export function surveyStatistics(
   };
 }
 export async function surveyOverview(u: AccessUser, f: Record<string, string>) {
-  const rows = await db.surveyResponse.findMany({
-    where: surveyFilters(u, f),
-    select: {
-      personId: true,
-      matchStatus: true,
-      surveyDate: true,
-      phase: true,
-      method: true,
-      warnings: true,
-      physical: true,
-      psychological: true,
-      social: true,
-      environment: true,
-      overall: true,
-      zbi: true,
-    },
+  const scoped = surveyFilters(u, f);
+  const filter = (extra: Prisma.SurveyResponseWhereInput) => ({
+    AND: [scoped, extra],
   });
-  return surveyStatistics(rows);
+  const comparable = filter({
+    personId: { not: null },
+    surveyDate: { not: null },
+    phase: { in: ["Baseline", "Annual", "Follow-up"] },
+    method: SURVEY_METHOD,
+  });
+  const metric = {
+    physical: true,
+    psychological: true,
+    social: true,
+    environment: true,
+    overall: true,
+    zbi: true,
+  } as const;
+  const [
+    groups,
+    completeResponses,
+    invalidTimestamps,
+    incompleteDomains,
+    phases,
+    notes,
+    averages,
+    dated,
+  ] = await Promise.all([
+    db.surveyResponse.groupBy({
+      by: ["personId", "matchStatus"],
+      where: scoped,
+      _count: { _all: true },
+    }),
+    db.surveyResponse.count({
+      where: filter({ overall: { not: null }, zbi: { not: null } }),
+    }),
+    db.surveyResponse.count({ where: filter({ surveyDate: null }) }),
+    db.surveyResponse.count({ where: filter({ overall: null }) }),
+    db.surveyResponse.count({ where: filter({ phase: "Needs Review" }) }),
+    db.surveyResponse.findMany({
+      where: filter({ NOT: { warnings: { equals: [] } } }),
+      select: { warnings: true },
+    }),
+    db.surveyResponse.aggregate({
+      where: comparable,
+      _avg: metric,
+      _count: metric,
+    }),
+    db.surveyResponse.findMany({
+      where: comparable,
+      select: {
+        personId: true,
+        surveyDate: true,
+        phase: true,
+        method: true,
+        ...metric,
+      },
+    }),
+  ]);
+  const { paired, repeatedCaregivers, phaseConflicts, baselineCaregivers } =
+    surveyStatistics(dated.map((row) => ({ ...row, warnings: [] })));
+  const means = Object.fromEntries(
+    outcomeFields.map((key) => [
+      key,
+      {
+        n: averages._count[key],
+        mean:
+          averages._avg[key] === null ? null : roundSurvey(averages._avg[key]!),
+      },
+    ]),
+  );
+  const responses = groups.reduce((n, g) => n + g._count._all, 0);
+  const linked = groups.reduce(
+    (n, g) => n + (g.personId ? g._count._all : 0),
+    0,
+  );
+  const months = new Map<
+    string,
+    {
+      overallSum: number;
+      overallCount: number;
+      zbiSum: number;
+      zbiCount: number;
+    }
+  >();
+  if (f.view === "trends") {
+    for (const row of dated) {
+      const month = surveyDay(row.surveyDate!).slice(0, 7);
+      const point = months.get(month) ?? {
+        overallSum: 0,
+        overallCount: 0,
+        zbiSum: 0,
+        zbiCount: 0,
+      };
+      if (row.overall !== null) {
+        point.overallSum += row.overall;
+        point.overallCount++;
+      }
+      if (row.zbi !== null) {
+        point.zbiSum += row.zbi;
+        point.zbiCount++;
+      }
+      months.set(month, point);
+    }
+  }
+  return {
+    responses,
+    completeResponses,
+    linked,
+    unmatched: responses - linked,
+    invalid: notes.length,
+    caregivers: new Set(groups.flatMap((g) => (g.personId ? [g.personId] : [])))
+      .size,
+    baselineCaregivers,
+    repeatedCaregivers,
+    phaseConflicts,
+    quality: {
+      ambiguous: groups.reduce(
+        (n, g) => n + (g.matchStatus === "Ambiguous" ? g._count._all : 0),
+        0,
+      ),
+      invalidTimestamps,
+      incompleteDomains,
+      phases,
+      unknownAnswers: notes.filter(
+        (r) =>
+          Array.isArray(r.warnings) &&
+          r.warnings.some((w) => String(w).includes("Unknown answer")),
+      ).length,
+      birthDates: notes.filter(
+        (r) =>
+          Array.isArray(r.warnings) &&
+          r.warnings.some((w) => String(w).includes("Birth date")),
+      ).length,
+    },
+    means,
+    paired,
+    monthly: [...months]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, point]) => ({
+        month,
+        overall: point.overallCount
+          ? roundSurvey(point.overallSum / point.overallCount)
+          : null,
+        zbi: point.zbiCount ? roundSurvey(point.zbiSum / point.zbiCount) : null,
+        overallCount: point.overallCount,
+        zbiCount: point.zbiCount,
+      })),
+  };
 }
 export async function surveyHistory(u: AccessUser, f: Record<string, string>) {
   const where = unrestricted(u)
@@ -937,19 +1335,40 @@ export async function surveyHistory(u: AccessUser, f: Record<string, string>) {
   const size = 20,
     total = await db.surveyImportBatch.count({ where });
   const page = Math.min(
-    Math.max(1, Number(f.page) || 1),
+    Math.max(1, Math.floor(Number(f.page)) || 1),
     Math.max(1, Math.ceil(total / size)),
+  );
+  const batches = await db.surveyImportBatch.findMany({
+    where,
+    orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+    take: size,
+    skip: (page - 1) * size,
+  });
+  const linked = await db.surveyResponse.groupBy({
+    by: ["batchId"],
+    where: {
+      AND: [
+        surveyScope(u),
+        {
+          batchId: { in: batches.map((batch) => batch.id) },
+          matchStatus: "Linked",
+        },
+      ],
+    },
+    _count: { _all: true },
+  });
+  const counts = new Map(
+    linked.map((entry) => [entry.batchId, entry._count._all]),
   );
   return {
     total,
     page,
     size,
-    rows: await db.surveyImportBatch.findMany({
-      where,
-      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-      take: size,
-      skip: (page - 1) * size,
-    }),
+    rows: batches.map(({ filename, ...batch }) => ({
+      ...batch,
+      filename: can(u.role, "write") ? filename : "Survey import",
+      linkedCount: counts.get(batch.id) ?? 0,
+    })),
   };
 }
 export const safeSurveyCell = (s: unknown) => {
@@ -972,22 +1391,26 @@ export async function exportSurveys(
     where = {
       AND: [
         surveyFilters(actor, f),
-        { personId: { not: null }, matchStatus: "Linked" },
+        {
+          personId: { not: null },
+          confirmedMemberId: { not: null },
+          matchStatus: "Linked",
+        },
       ],
     };
-  const count = await tx.surveyResponse.count({ where });
-  if (count > 10000)
-    throw new Error(
-      "Narrow the filters to export at most 10,000 survey records.",
-    );
   const rows = await tx.surveyResponse.findMany({
     where,
     select: surveyListSelect,
     orderBy: [{ surveyDate: "asc" }, { id: "asc" }],
+    take: 10001,
   });
+  if (rows.length > 10000)
+    throw new Error(
+      "Narrow the filters to export at most 10,000 survey records.",
+    );
   const extended = f.extended === "1";
   const headers = [
-    "Name",
+    "Member ID",
     "Survey Date",
     "Survey Phase",
     "Physical",
@@ -998,7 +1421,6 @@ export async function exportSurveys(
     "ZBI",
     ...(extended
       ? [
-          "Member ID",
           "Centre",
           "Survey language",
           "Match status",
@@ -1008,7 +1430,7 @@ export async function exportSurveys(
       : []),
   ];
   const lines = rows.map((r) => [
-    r.person?.name || r.cleanedName,
+    r.confirmedMemberId,
     r.surveyDate
       ? new Date(r.surveyDate.getTime() + 8 * 3600000)
           .toISOString()
@@ -1018,7 +1440,6 @@ export async function exportSurveys(
     ...outcomeFields.map((k) => r[k]),
     ...(extended
       ? [
-          r.confirmedMemberId,
           r.centre,
           r.language,
           r.matchStatus,
@@ -1034,7 +1455,7 @@ export async function exportSurveys(
     "SurveyExport",
     "filtered",
     null,
-    { count: rows.length, filters: f, extended },
+    { count: rows.length, extended },
   );
   return (
     "\ufeff" +

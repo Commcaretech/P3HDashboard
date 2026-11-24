@@ -2,6 +2,14 @@ import { Prisma } from "@prisma/client";
 import { categories, personSchema, programmeSchema } from "./domain";
 import { personInclude, programmeInclude } from "./db";
 type Tx = Prisma.TransactionClient;
+export function redactSurveyAudit<
+  T extends { entityType: string; action: string; changes: unknown },
+>(entry: T) {
+  return entry.entityType.startsWith("Survey") ||
+    entry.action === "Verified survey alias changed"
+    ? { ...entry, changes: null }
+    : entry;
+}
 export async function audit(
   tx: Tx,
   userId: string,

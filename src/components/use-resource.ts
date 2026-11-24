@@ -7,8 +7,10 @@ export function useResource<T>(
   url: string,
   revision: unknown = 0,
   enabled = true,
+  cacheResult = true,
 ) {
-  const cache = useWorkspaceCache(),
+  const workspaceCache = useWorkspaceCache();
+  const cache = cacheResult ? workspaceCache : null,
     key = `resource:${family}:${url}`;
   const [state, setState] = useState<{
     key: string;

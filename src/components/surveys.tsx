@@ -6,6 +6,9 @@ import { useResource } from "./use-resource";
 import { useWorkspaceCache } from "./workspace-cache";
 import { request, useFilters } from "./common";
 import { apiFetch } from "@/lib/client-http";
+import SurveyImport from "./ncss-import";
+import { ncssImportMode } from "@/lib/ncss-matched-csv";
+import { surveyPhases } from "@/lib/survey-csv";
 import { Badge, Modal, Table } from "./ui";
 import {
   questionKeys,
@@ -15,22 +18,28 @@ import {
   surveyQuestions,
 } from "@/lib/survey-scoring";
 import type {
-  previewSurveys,
   listSurveys,
   surveyOverview,
   surveyHistory,
   surveyDetail,
-  surveyCandidates,
+  lookupSurveyMember,
 } from "@/lib/surveys";
 const SurveyTrend = dynamic(() => import("./survey-trend"), {
   loading: () => <p>Loading survey chart...</p>,
 });
+const SurveyMonthlyTrend = dynamic(
+  () => import("./survey-trend").then((module) => module.SurveyMonthlyTrend),
+  {
+    loading: () => <p>Loading survey trends...</p>,
+  },
+);
 type Stats = Awaited<ReturnType<typeof surveyOverview>>;
 type Listing = Awaited<ReturnType<typeof listSurveys>>;
 type History = Awaited<ReturnType<typeof surveyHistory>>;
 type Detail = Awaited<ReturnType<typeof surveyDetail>>;
-type Preview = Awaited<ReturnType<typeof previewSurveys>>;
-type Candidate = Awaited<ReturnType<typeof surveyCandidates>>["rows"][number];
+type Candidate = Awaited<ReturnType<typeof lookupSurveyMember>>;
+type SurveyAction =
+  "link" | "unlink" | "correct" | "reject" | "correct-name" | "reassign-import";
 const languageOptions = ["English", "Mandarin", "Malay / Tamil"] as const;
 const scoreColumns = [
   "physical",
@@ -60,10 +69,7 @@ const dateLabel = (value: Date | string | null) =>
 const displayScore = (n: number | null) =>
   n === null ? "Incomplete" : n.toFixed(2).replace(/\.00$/, "");
 
-<<<<<<< HEAD
 import { TrashButton } from "./trash";
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
 export default function Surveys({
   write,
   manager,
@@ -79,13 +85,16 @@ export default function Surveys({
 }) {
   const [f, setF] = useFilters(),
     [selected, setSelected] = useState(""),
+    [reviewingIdentity, setReviewingIdentity] = useState(false),
+    [queue, setQueue] = useState<Record<string, string> | null>(null),
+    [openingNext, setOpeningNext] = useState(false),
     [notice, setNotice] = useState(""),
     [exporting, setExporting] = useState(false);
   const cache = useWorkspaceCache();
   const mode = personId
     ? "records"
-    : !write && f.view === "import"
-      ? "overview"
+    : !write && (f.view === "import" || f.view === "review")
+      ? "records"
       : f.view || "overview";
   const [searchFilter, setSearchFilter] = useState(f.q || "");
   useEffect(() => {
@@ -97,11 +106,13 @@ export default function Surveys({
     q: searchFilter,
     view:
       mode === "results"
-        ? "overview"
+        ? "trends"
         : ["overview", "history"].includes(mode)
           ? mode
-          : "records",
-    ...(mode === "review" ? { review: "1" } : {}),
+          : mode === "review"
+            ? "identity"
+            : "records",
+    ...(mode === "review" && !f.match ? { review: "1" } : {}),
     ...(personId ? { personId } : {}),
   });
   const resource = useResource<Listing & Stats & History>(
@@ -109,6 +120,7 @@ export default function Surveys({
       `/api/surveys?${query}`,
       revision,
       mode !== "import",
+      mode !== "review" && mode !== "history",
     ),
     data = resource.busy ? null : resource.data;
   const change = (key: string, value: string) =>
@@ -123,6 +135,40 @@ export default function Surveys({
     );
     resource.reload();
     onChanged?.();
+  };
+  const closeReview = () => {
+    setSelected("");
+    setReviewingIdentity(false);
+    setQueue(null);
+  };
+  const openNext = async (filters: Record<string, string>, after = "") => {
+    setOpeningNext(true);
+    setNotice("");
+    try {
+      const params = new URLSearchParams({ ...filters, view: "queue", after });
+      const next: { id: string } | null = await request(
+        `/api/surveys?${params}`,
+      );
+      if (!next) {
+        closeReview();
+        setNotice(
+          after
+            ? "You’ve reached the end of this review queue."
+            : "No unmatched surveys match these filters.",
+        );
+        return;
+      }
+      setQueue(filters);
+      setReviewingIdentity(true);
+      setSelected(next.id);
+    } catch (e) {
+      closeReview();
+      setNotice(
+        e instanceof Error ? e.message : "Could not open the next survey.",
+      );
+    } finally {
+      setOpeningNext(false);
+    }
   };
   const exportCSV = async (extended: boolean) => {
     setExporting(true);
@@ -163,7 +209,7 @@ export default function Surveys({
             <div>
               <h2>Surveys &amp; Outcomes</h2>
               <p>
-                Import responses, verify identities and follow caregiver
+                Import Member ID–matched responses and follow caregiver
                 outcomes.
               </p>
             </div>
@@ -172,12 +218,11 @@ export default function Surveys({
             {[
               ["overview", "Overview"],
               ["import", "Import Surveys"],
-              ["review", "Needs Review"],
               ["records", "Survey Records"],
               ["results", "Results & Trends"],
               ["history", "Import History"],
             ]
-              .filter(([v]) => write || v !== "import")
+              .filter(([v]) => write || (v !== "import" && v !== "review"))
               .map(([value, title]) => (
                 <button
                   key={value}
@@ -216,7 +261,7 @@ export default function Surveys({
               aria-label="Search surveys"
               value={f.q || ""}
               onChange={(e) => change("q", e.target.value)}
-              placeholder="Submitted name or confirmed Member ID"
+              placeholder="Response reference or Member ID"
             />
           </label>
           <label>
@@ -247,7 +292,7 @@ export default function Surveys({
               onChange={(e) => change("phase", e.target.value)}
             >
               <option value="">All</option>
-              {["Baseline", "Annual", "Needs Review"].map((v) => (
+              {surveyPhases.map((v) => (
                 <option key={v}>{v}</option>
               ))}
             </select>
@@ -259,9 +304,24 @@ export default function Surveys({
               onChange={(e) => change("match", e.target.value)}
             >
               <option value="">All</option>
-              <option>Linked</option>
+              <option value="Linked">Verified</option>
               <option>Unmatched</option>
               <option>Ambiguous</option>
+              <option>Needs Review</option>
+              <option>Corrected</option>
+            </select>
+          </label>
+          <label>
+            Data quality
+            <select
+              value={f.quality || ""}
+              onChange={(e) => change("quality", e.target.value)}
+            >
+              <option value="">All</option>
+              <option value="warnings">Responses with data warnings</option>
+              <option value="timestamp">Invalid timestamps</option>
+              <option value="whoqol">Incomplete WHOQOL domains</option>
+              <option value="phase">Phases to verify</option>
             </select>
           </label>
           <label>
@@ -300,11 +360,10 @@ export default function Surveys({
       )}
       {mode === "import" ? (
         <SurveyImport
-          onSaved={(message) => {
-            setNotice(message);
-            refreshed();
-            setF({ view: "review" });
-          }}
+          onSaved={refreshed}
+          navigate={(view, batch) =>
+            setF({ view, ...(batch ? { batch } : {}) })
+          }
         />
       ) : resource.busy ? (
         <p role="status">Loading surveys...</p>
@@ -315,11 +374,16 @@ export default function Surveys({
               <>
                 <div className="stat-grid">
                   {[
-                    ["Eligible responses", data.responses],
+                    ["Total Imported Responses", data.responses],
+                    ["Complete Surveys", data.completeResponses],
+                    [
+                      "Incomplete Surveys",
+                      data.responses - data.completeResponses,
+                    ],
                     ["Linked responses", data.linked],
                     ["Unmatched Surveys", data.unmatched],
                     ["Responses with data warnings", data.invalid],
-                    ["Unique linked caregivers", data.caregivers],
+                    ["Unique Caregivers Surveyed", data.caregivers],
                     [
                       "Caregivers with baseline surveys",
                       data.baselineCaregivers,
@@ -361,12 +425,58 @@ export default function Surveys({
                 <section className="panel">
                   <h3>Data quality</h3>
                   <p>
-                    Ambiguous identities: {data.quality.ambiguous}. Invalid
-                    timestamps: {data.quality.invalidTimestamps}. Unknown
-                    answers: {data.quality.unknownAnswers}. Incomplete WHOQOL
-                    domains: {data.quality.incompleteDomains}. Birth dates to
-                    verify: {data.quality.birthDates}. Phases to verify:{" "}
-                    {data.quality.phases}.
+                    {data.completeResponses} of {data.responses} eligible
+                    responses have complete WHOQOL and six-item ZBI scores
+                    {data.responses > 0
+                      ? ` (${Math.round((data.completeResponses / data.responses) * 100)}%).`
+                      : "."}
+                  </p>
+                  <div className="actions">
+                    {(
+                      [
+                        [
+                          "Ambiguous identities",
+                          data.quality.ambiguous,
+                          { match: "Ambiguous" },
+                        ],
+                        [
+                          "Invalid timestamps",
+                          data.quality.invalidTimestamps,
+                          { quality: "timestamp" },
+                        ],
+                        [
+                          "Incomplete WHOQOL domains",
+                          data.quality.incompleteDomains,
+                          { quality: "whoqol" },
+                        ],
+                        [
+                          "Phases to verify",
+                          data.quality.phases,
+                          { quality: "phase" },
+                        ],
+                      ] as const
+                    ).map(([label, total, filter]) => (
+                      <button
+                        key={label}
+                        className="secondary"
+                        onClick={() =>
+                          setF({ ...f, ...filter, view: "review", page: "1" })
+                        }
+                      >
+                        {label} ({total})
+                      </button>
+                    ))}
+                    <button
+                      className="secondary"
+                      onClick={() => setF({ view: "history", page: "1" })}
+                    >
+                      Review duplicate uploads in Import History
+                    </button>
+                  </div>
+                  <p>
+                    {data.quality.unknownAnswers} responses have unknown
+                    answers. {data.quality.birthDates} responses have birth
+                    dates to verify.
                   </p>
                   <button
                     className="secondary"
@@ -385,9 +495,10 @@ export default function Surveys({
                 <section className="panel">
                   <h3>Results from verified linked responses</h3>
                   <p>
-                    Only dated Baseline and Annual responses using the current
-                    scoring method contribute. Each metric shows its own valid
-                    observation count. Pending identities do not contribute.
+                    Dated Baseline, Annual and Follow-up responses using the
+                    current scoring method contribute. Each metric shows its own
+                    valid observation count. Pending identities do not
+                    contribute.
                   </p>
                   <Table
                     headers={["Metric", "Average", "Valid responses"]}
@@ -405,9 +516,9 @@ export default function Surveys({
                   <h3>Changes within the same caregivers</h3>
                   <p>
                     Each comparison pairs a verified caregiver’s baseline with
-                    their latest annual response on a later date, using the same
-                    scoring version. {data.phaseConflicts} caregivers have
-                    repeated baseline phases requiring review.
+                    their latest Annual or Follow-up response on a later date,
+                    using the same scoring version. {data.phaseConflicts}{" "}
+                    caregivers have repeated baseline phases requiring review.
                   </p>
                   <Table
                     headers={[
@@ -433,6 +544,7 @@ export default function Surveys({
                 </section>
               </>
             )}
+            {mode === "results" && <SurveyMonthlyTrend rows={data.monthly} />}
             {mode === "history" && (
               <Table
                 headers={["File", "Centre", "Language", "Imported", "Summary"]}
@@ -444,7 +556,10 @@ export default function Surveys({
                     b.language,
                     dateLabel(b.createdAt),
                     <details key="summary">
-                      <summary>View import counts and row outcomes</summary>
+                      <summary>
+                        {b.linkedCount} currently linked · View import counts
+                        and row outcomes
+                      </summary>
                       <pre className="survey-summary">
                         {JSON.stringify(b.summary, null, 2)}
                       </pre>
@@ -466,11 +581,18 @@ export default function Surveys({
               <>
                 <div className="section-head">
                   <h3>
-                    {mode === "review"
-                      ? "Unmatched Surveys and data review"
-                      : "Survey Records"}{" "}
-                    ({data.total})
+                    {mode === "review" ? "Identity Review" : "Survey Records"} (
+                    {data.total})
                   </h3>
+                  {write && !personId && (
+                    <button
+                      className="secondary"
+                      disabled={openingNext || f.match === "Linked"}
+                      onClick={() => void openNext({ ...f, q: searchFilter })}
+                    >
+                      Review unmatched surveys
+                    </button>
+                  )}
                   {manager && (
                     <div className="actions">
                       <button
@@ -492,10 +614,8 @@ export default function Surveys({
                 </div>
                 {mode === "review" && (
                   <p>
-                    These eligible responses are securely stored. Names and
-                    nicknames only suggest candidates. Each survey needs a
-                    staff-confirmed identity before it appears in a caregiver’s
-                    history.
+                    Search for the respondent in CaritaHub, verify their Member
+                    ID and link the survey to an existing caregiver.
                   </p>
                 )}
                 {personId && data.rows.length > 0 && (
@@ -503,7 +623,9 @@ export default function Surveys({
                 )}
                 <Table
                   headers={[
-                    "Submitted name / Member ID",
+                    mode === "review"
+                      ? "Reference / submitted name / Member ID"
+                      : "Reference / Member ID",
                     "Survey date",
                     "Phase / language",
                     ...labels,
@@ -514,14 +636,33 @@ export default function Surveys({
                     id: r.id,
                     cells: [
                       <div key="name">
-                        {r.personId ? (
-                          <Link href={`/people/${r.personId}`}>
-                            {r.person?.name || r.cleanedName}
-                          </Link>
-                        ) : (
-                          r.cleanedName || "Name missing"
+                        <span>{r.id}</span>
+                        {mode === "review" && r.identityStage && (
+                          <small>
+                            {r.identityStage.submittedName ||
+                              "Name not supplied"}
+                          </small>
                         )}
-                        <small>{r.confirmedMemberId || r.matchStatus}</small>
+                        {mode === "review" &&
+                          r.identityStage?.correctedName && (
+                            <small>
+                              Corrected name: {r.identityStage.correctedName}
+                            </small>
+                          )}
+                        {r.personId ? (
+                          <small>
+                            <Link href={`/people/${r.personId}?tab=surveys`}>
+                              {r.confirmedMemberId || "View caregiver"}
+                            </Link>
+                            {" · "}Verified
+                          </small>
+                        ) : (
+                          <small>
+                            {r.matchStatus === "Ambiguous"
+                              ? "Needs Review · Ambiguous identity"
+                              : "Unmatched"}
+                          </small>
+                        )}
                       </div>,
                       dateLabel(r.surveyDate),
                       `${r.phase} / ${r.language}`,
@@ -531,16 +672,33 @@ export default function Surveys({
                           ? `${r.warnings.length} warnings`
                           : "Complete responses"}
                       </Badge>,
-<<<<<<< HEAD
                       <div className="row-actions" key="open">
-                        <button
-                          className="secondary"
-                          onClick={() => setSelected(r.id)}
-                        >
-                          {write && !r.personId
-                            ? "Review identity"
-                            : "View survey"}
-                        </button>
+                        {mode !== "review" && (
+                          <button
+                            className="secondary"
+                            disabled={openingNext}
+                            onClick={() => {
+                              setReviewingIdentity(false);
+                              setSelected(r.id);
+                            }}
+                          >
+                            View survey
+                          </button>
+                        )}
+                        {write && (
+                          <button
+                            className="secondary"
+                            disabled={openingNext}
+                            onClick={() => {
+                              setReviewingIdentity(true);
+                              setSelected(r.id);
+                            }}
+                          >
+                            {r.importMode === ncssImportMode
+                              ? "Review import"
+                              : "Review identity"}
+                          </button>
+                        )}
                         {manager && (
                           <TrashButton
                             type="survey"
@@ -549,22 +707,17 @@ export default function Surveys({
                           />
                         )}
                       </div>,
-=======
-                      <button
-                        className="secondary"
-                        key="open"
-                        onClick={() => setSelected(r.id)}
-                      >
-                        {write && !r.personId
-                          ? "Review identity"
-                          : "View survey"}
-                      </button>,
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
                     ],
                   }))}
                   server={{
-                    onSort: () => {},
-                    sortableColumns: [],
+                    onSort: (column, direction) =>
+                      setF({
+                        ...f,
+                        sort: column === 1 ? "date" : "phase",
+                        direction: direction === 1 ? "asc" : "desc",
+                        page: "1",
+                      }),
+                    sortableColumns: personId ? [] : [1, 2],
                     page: data.page,
                     size: data.size,
                     total: data.total,
@@ -577,15 +730,19 @@ export default function Surveys({
                     No survey responses match these filters.
                   </p>
                 )}
-                {personId && (
-                  <SurveyAliases
-                    personId={personId}
-                    aliases={data.aliases}
-                    write={write}
-                    manager={manager}
-                    onSaved={refreshed}
-                  />
-                )}
+                {personId &&
+                  (data.aliases.length > 0 ||
+                    data.rows.some(
+                      (row) => row.importMode !== ncssImportMode,
+                    )) && (
+                    <SurveyAliases
+                      personId={personId}
+                      aliases={data.aliases}
+                      write={write}
+                      manager={manager}
+                      onSaved={refreshed}
+                    />
+                  )}
               </>
             )}
           </>
@@ -593,13 +750,21 @@ export default function Surveys({
       )}
       {selected && (
         <SurveyDetail
+          key={`${selected}:${reviewingIdentity}`}
           id={selected}
+          identity={reviewingIdentity && write}
           write={write}
           manager={manager}
-          onClose={() => setSelected("")}
-          onSaved={() => {
-            setSelected("");
+          onClose={() => {
+            if (!openingNext) closeReview();
+          }}
+          openingNext={openingNext}
+          onNext={queue ? () => void openNext(queue, selected) : undefined}
+          onSaved={(action) => {
             refreshed();
+            if (action === "correct-name") return;
+            if (queue) void openNext(queue, selected);
+            else closeReview();
           }}
         />
       )}
@@ -607,270 +772,47 @@ export default function Surveys({
   );
 }
 
-function SurveyImport({ onSaved }: { onSaved: (message: string) => void }) {
-  const [files, setFiles] = useState<
-      {
-        name: string;
-        language: (typeof languageOptions)[number];
-        content: string;
-      }[]
-    >([]),
-    [centre, setCentre] = useState(""),
-    [preview, setPreview] = useState<Preview | null>(null),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
-  const [previewPage, setPreviewPage] = useState(1);
-  const choices =
-    useResource<Listing>("surveys", "/api/surveys?view=options").data
-      ?.centres || [];
-  const body = { centre, files };
-  const execute = async (action: "preview" | "import") => {
-    setBusy(true);
-    setError("");
-    try {
-      const result = await request("/api/surveys", { action, ...body });
-      if (action === "preview") {
-        setPreview(result);
-        setPreviewPage(1);
-      } else {
-        setFiles([]);
-        setPreview(null);
-        onSaved(
-          `Survey import saved. ${result.batches.reduce((n: number, b: { saved: number }) => n + b.saved, 0)} responses added to the identity review queue.`,
-        );
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Survey import failed.");
-    } finally {
-      setBusy(false);
-    }
-  };
-  const previewRows =
-    preview?.files.flatMap((f) =>
-      f.rows.map((r) => ({ ...r, file: f.name })),
-    ) || [];
-  const counts = preview
-    ? {
-        submitted: previewRows.length,
-        eligible: previewRows.filter((r) => !r.exclusion).length,
-        excludedConsent: previewRows.filter(
-          (r) => r.exclusion === "Consent not granted",
-        ).length,
-        excludedTest: previewRows.filter((r) => r.exclusion === "Test record")
-          .length,
-        duplicates: previewRows.filter(
-          (r) => r.disposition === "Already imported",
-        ).length,
-        conflicts: previewRows.filter((r) =>
-          r.disposition.startsWith("Source conflict"),
-        ).length,
-        review: previewRows.filter(
-          (r) => r.disposition === "Ready for identity review",
-        ).length,
-        invalid: previewRows.filter((r) => r.warnings?.length).length,
-      }
-    : null;
-  return (
-    <section className="panel">
-      <h3>Import survey CSV files</h3>
-      <p>
-        Upload UTF-8 CSV exports. Preview cleaning, scores and exclusions before
-        saving. Names do not create or overwrite caregiver records.
-      </p>
-      <label>
-        Import centre
-        <input
-          aria-label="Import centre"
-          list="survey-centre-options"
-          required
-          value={centre}
-          disabled={busy}
-          onChange={(e) => {
-            setCentre(e.target.value);
-            setPreview(null);
-          }}
-        />
-      </label>
-      <datalist id="survey-centre-options">
-        {choices.map((c) => (
-          <option key={c} value={c} />
-        ))}
-      </datalist>
-      <label>
-        Survey CSV files
-        <input
-          aria-label="Survey CSV files"
-          type="file"
-          accept=".csv,text/csv"
-          multiple
-          disabled={busy}
-          onChange={async (e) => {
-            setError("");
-            setPreview(null);
-            try {
-              const selected = Array.from(e.target.files || []);
-              if (
-                selected.length > 5 ||
-                selected.some((f) => f.size > 4 * 1024 * 1024) ||
-                selected.reduce((n, f) => n + f.size, 0) > 8 * 1024 * 1024
-              )
-                throw new Error(
-                  "Choose up to five files, 4 MB each and 8 MB combined.",
-                );
-              setFiles(
-                await Promise.all(
-                  selected.map(async (file) => ({
-                    name: file.name,
-                    content: new TextDecoder("utf-8", { fatal: true }).decode(
-                      await file.arrayBuffer(),
-                    ),
-                    language: /mandarin/i.test(file.name)
-                      ? ("Mandarin" as const)
-                      : /malay|tamil/i.test(file.name)
-                        ? ("Malay / Tamil" as const)
-                        : ("English" as const),
-                  })),
-                ),
-              );
-            } catch (err) {
-              setFiles([]);
-              setError(err instanceof Error ? err.message : "Cannot read CSV.");
-            }
-          }}
-        />
-      </label>
-      {files.map((f, i) => (
-        <label key={i}>
-          {f.name} — source language/export
-          <select
-            aria-label={`Language for ${f.name}`}
-            disabled={busy}
-            value={f.language}
-            onChange={(e) => {
-              setFiles((xs) =>
-                xs.map((v, j) =>
-                  j === i
-                    ? { ...v, language: e.target.value as typeof f.language }
-                    : v,
-                ),
-              );
-              setPreview(null);
-            }}
-          >
-            {languageOptions.map((v) => (
-              <option key={v}>{v}</option>
-            ))}
-          </select>
-        </label>
-      ))}
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      <div className="actions">
-        <button
-          disabled={busy || !files.length || !centre.trim()}
-          onClick={() => void execute("preview")}
-        >
-          {busy ? "Processing surveys..." : "Preview surveys"}
-        </button>
-        {preview && (
-          <button disabled={busy} onClick={() => void execute("import")}>
-            Confirm survey import
-          </button>
-        )}
-      </div>
-      {preview && counts && (
-        <>
-          <h4>Import preview</h4>
-          <p role="status">
-            Submitted {counts.submitted}; eligible {counts.eligible}; consent
-            excluded {counts.excludedConsent}; test excluded{" "}
-            {counts.excludedTest}; already imported {counts.duplicates}; source
-            conflicts {counts.conflicts}; identity review {counts.review};
-            invalid or incomplete {counts.invalid}; linked 0.
-          </p>
-          <p>
-            Excluded rows show only their row number and reason. Eligible
-            responses remain unmatched until staff confirm identity.
-          </p>
-          <Table
-            headers={[
-              "File / row",
-              "Cleaned name",
-              "Date / phase",
-              "WHOQOL Overall",
-              "Six-item ZBI",
-              "Outcome / warnings",
-            ]}
-            rows={previewRows
-              .slice((previewPage - 1) * 20, previewPage * 20)
-              .map((r, i) => ({
-                id: `${previewPage}-${i}`,
-                cells: [
-                  `${r.file} / ${r.rowNumber}`,
-                  r.cleanedName || "Excluded — identity not retained",
-                  r.surveyDate
-                    ? `${dateLabel(r.surveyDate)} / ${r.phase}`
-                    : r.exclusion
-                      ? "Excluded"
-                      : "Needs date review",
-                  r.scores ? displayScore(r.scores.overall) : "",
-                  r.scores ? displayScore(r.scores.zbi) : "",
-                  <div key="status">
-                    {r.disposition}
-                    {Boolean(r.warnings?.length) && (
-                      <details>
-                        <summary>{r.warnings!.length} warnings</summary>
-                        <ul>
-                          {r.warnings!.map((w) => (
-                            <li key={w}>{w}</li>
-                          ))}
-                        </ul>
-                      </details>
-                    )}
-                  </div>,
-                ],
-              }))}
-            server={{
-              onSort: () => {},
-              sortableColumns: [],
-              page: previewPage,
-              size: 20,
-              total: previewRows.length,
-              onPage: setPreviewPage,
-              onSize: () => {},
-            }}
-          />
-        </>
-      )}
-    </section>
-  );
-}
-
 function SurveyDetail({
   id,
+  identity,
   write,
   manager,
   onClose,
   onSaved,
+  onNext,
+  openingNext,
 }: {
   id: string;
+  identity: boolean;
   write: boolean;
   manager: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (action: SurveyAction) => void;
+  onNext?: () => void;
+  openingNext: boolean;
 }) {
+  const [nameSaved, setNameSaved] = useState(false);
   const detail = useResource<Detail>(
     "surveys",
-    `/api/surveys?view=detail&id=${encodeURIComponent(id)}`,
+    `/api/surveys?view=detail&id=${encodeURIComponent(id)}&identity=${identity ? "1" : "0"}`,
+    0,
+    true,
+    !identity,
   );
   return (
-    <Modal title="Survey details and identity" onClose={onClose}>
+    <Modal
+      title={identity ? "Survey identity review" : "Survey details"}
+      onClose={onClose}
+    >
+      {nameSaved && <p role="status">Name change saved.</p>}
       {detail.error ? (
-        <p role="alert">{detail.error}</p>
-      ) : !detail.data || detail.busy ? (
+        <p role="alert">
+          {detail.error}{" "}
+          <button className="secondary" onClick={detail.reload}>
+            Reload survey
+          </button>
+        </p>
+      ) : !detail.data || detail.busy || openingNext ? (
         <p>Loading survey...</p>
       ) : (
         <SurveyDetailForm
@@ -878,7 +820,16 @@ function SurveyDetail({
           r={detail.data}
           write={write}
           manager={manager}
-          onSaved={onSaved}
+          onNext={onNext}
+          onReload={detail.reload}
+          onViewHistory={onClose}
+          onSaved={(action) => {
+            onSaved(action);
+            if (action === "correct-name") {
+              setNameSaved(true);
+              detail.reload();
+            }
+          }}
         />
       )}
     </Modal>
@@ -889,18 +840,29 @@ function SurveyDetailForm({
   write,
   manager,
   onSaved,
+  onNext,
+  onReload,
+  onViewHistory,
 }: {
   r: Detail;
   write: boolean;
   manager: boolean;
-  onSaved: () => void;
+  onSaved: (action: SurveyAction) => void;
+  onNext?: () => void;
+  onReload: () => void;
+  onViewHistory: () => void;
 }) {
-  const [search, setSearch] = useState(""),
-    [debounced, setDebounced] = useState(""),
+  const matchedImport = r.importMode === ncssImportMode;
+  const identity = matchedImport ? null : r.identity;
+  const [memberId, setMemberId] = useState(""),
     [candidate, setCandidate] = useState<Candidate | null>(null),
     [confirmed, setConfirmed] = useState(false),
-    [saveAlias, setSaveAlias] = useState(false),
     [notes, setNotes] = useState(""),
+    [editingName, setEditingName] = useState(false),
+    [correctedName, setCorrectedName] = useState(
+      identity?.correctedName ?? identity?.cleanedName ?? "",
+    ),
+    [nameReason, setNameReason] = useState(""),
     [phase, setPhase] = useState(r.phase),
     [date, setDate] = useState(
       r.surveyDate
@@ -910,24 +872,30 @@ function SurveyDetailForm({
         : "",
     ),
     [dob, setDob] = useState(
-      r.dob ? new Date(r.dob).toISOString().slice(0, 10) : "",
+      identity?.dob ? new Date(identity.dob).toISOString().slice(0, 10) : "",
     ),
     [answers, setAnswers] = useState<Record<string, number | null>>({}),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(search), 250);
-    return () => clearTimeout(timer);
-  }, [search]);
-  const candidates = useResource<{ rows: Candidate[] }>(
-    "surveys",
-    `/api/surveys?view=candidates&id=${encodeURIComponent(r.id)}&q=${encodeURIComponent(debounced)}`,
-    0,
-    write && !r.personId,
-  );
-  const execute = async (
-    action: "link" | "unlink" | "correct" | "ambiguous",
-  ) => {
+  const checkMember = async () => {
+    if (busy || editingName || !memberId.trim()) return;
+    setBusy(true);
+    setError("");
+    setCandidate(null);
+    setConfirmed(false);
+    try {
+      setCandidate(
+        await request("/api/surveys", { action: "lookup", id: r.id, memberId }),
+      );
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "The Member ID could not be checked.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  const execute = async (action: SurveyAction, name?: string | null) => {
     setBusy(true);
     setError("");
     try {
@@ -935,50 +903,208 @@ function SurveyDetailForm({
         action,
         id: r.id,
         version: r.updatedAt,
-        notes,
-        personId: candidate?.id,
-        confirmed,
-        saveAlias,
-        phase,
-        ...(date !==
-        (r.surveyDate
-          ? new Date(new Date(r.surveyDate).getTime() + 8 * 3600000)
-              .toISOString()
-              .slice(0, 16)
-          : "")
-          ? { surveyDate: date ? date + ":00+08:00" : "" }
-          : {}),
-        ...(dob !== (r.dob ? new Date(r.dob).toISOString().slice(0, 10) : "")
-          ? { dob }
-          : {}),
-        answers,
+        ...(action === "correct-name"
+          ? { notes: nameReason, correctedName: name }
+          : {
+              notes,
+              personId: candidate?.id,
+              memberId: candidate?.memberId,
+              confirmed,
+              ...(action === "link" ? { verificationMethod: "CaritaHub" } : {}),
+              phase,
+              ...(date !==
+              (r.surveyDate
+                ? new Date(new Date(r.surveyDate).getTime() + 8 * 3600000)
+                    .toISOString()
+                    .slice(0, 16)
+                : "")
+                ? { surveyDate: date ? date + ":00+08:00" : "" }
+                : {}),
+              ...(dob !==
+              (identity?.dob
+                ? new Date(identity.dob).toISOString().slice(0, 10)
+                : "")
+                ? { dob }
+                : {}),
+              answers,
+            }),
       });
-      onSaved();
+      onSaved(action);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Cannot save survey.");
     } finally {
       setBusy(false);
     }
   };
-  const effective = scoreSurvey(r.answers as Record<string, unknown>);
+  const effective = identity
+    ? scoreSurvey(r.answers as Record<string, unknown>)
+    : null;
   return (
     <div className="survey-detail">
-      <h3>{r.cleanedName || "Name not supplied"}</h3>
+      {identity && (
+        <h3>
+          {identity.correctedName ||
+            identity.cleanedName ||
+            "Name not supplied"}
+        </h3>
+      )}
       <p>
-        Original submission: {r.submittedName}
         <br />
-        Birth date submitted: {r.dobText || "Not supplied"}
+        Response reference: {r.id}
+        {identity && (
+          <>
+            <br />
+            Original submission: {identity.submittedName || "Not supplied"}
+            <br />
+            Birth date submitted: {identity.dobText || "Not supplied"}
+          </>
+        )}
         <br />
         Survey date: {dateLabel(r.surveyDate)}
         <br />
-        Recorded phase: {r.phaseText || "Missing"}
+        Recorded phase: {(identity ? r.phaseText : r.phase) || "Missing"}
         <br />
         Centre: {r.centre} / Export: {r.language}
       </p>
+      {r.personId && (
+        <Link
+          href={`/people/${r.personId}?tab=surveys`}
+          onClick={onViewHistory}
+        >
+          View Survey History
+        </Link>
+      )}
+      {matchedImport && (
+        <section>
+          <p>
+            Verified Member ID <strong>{r.confirmedMemberId}</strong> ? Matched
+            in Excel
+          </p>
+          {r.canReassign && (
+            <details>
+              <summary>Correct Member ID</summary>
+              <label>
+                Replacement Member ID
+                <input
+                  value={memberId}
+                  onChange={(e) => {
+                    setMemberId(e.target.value);
+                    setCandidate(null);
+                    setConfirmed(false);
+                  }}
+                />
+              </label>
+              <button
+                className="secondary"
+                disabled={busy || !memberId.trim()}
+                onClick={() => void checkMember()}
+              >
+                Check Member ID
+              </button>
+              {candidate && (
+                <>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={confirmed}
+                      onChange={(e) => setConfirmed(e.target.checked)}
+                    />
+                    I verified that this response belongs to{" "}
+                    {candidate.memberId} in {candidate.centre}.
+                  </label>
+                  <label>
+                    Reason for Member ID correction
+                    <textarea
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                    />
+                  </label>
+                  <button
+                    disabled={busy || !confirmed || !notes.trim()}
+                    onClick={() => void execute("reassign-import")}
+                  >
+                    Confirm Member ID correction
+                  </button>
+                </>
+              )}
+            </details>
+          )}
+          {!!r.identity?.reviews.length && (
+            <details>
+              <summary>Member ID correction history</summary>
+              <ul>
+                {r.identity.reviews.map((review) => (
+                  <li key={review.id}>
+                    {review.action} {review.memberId} ?{" "}
+                    {dateLabel(review.reviewedAt)} ? {review.reviewerName} ?{" "}
+                    {review.notes}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </section>
+      )}
+      {write && identity && (
+        <section>
+          <button
+            className="secondary"
+            disabled={busy}
+            aria-expanded={editingName}
+            onClick={() => {
+              setCorrectedName(identity.correctedName ?? identity.cleanedName);
+              setNameReason("");
+              setError("");
+              setEditingName(!editingName);
+            }}
+          >
+            {editingName ? "Cancel name edit" : "Correct Display Name"}
+          </button>
+          {editingName && (
+            <div className="form-grid">
+              <label>
+                Corrected display name
+                <input
+                  aria-label="Corrected display name"
+                  value={correctedName}
+                  maxLength={150}
+                  onChange={(e) => setCorrectedName(e.target.value)}
+                />
+              </label>
+              <label>
+                Reason for name correction (optional)
+                <textarea
+                  aria-label="Reason for name correction (optional)"
+                  value={nameReason}
+                  maxLength={2000}
+                  onChange={(e) => setNameReason(e.target.value)}
+                />
+              </label>
+              <div className="actions">
+                <button
+                  disabled={busy || !correctedName.trim()}
+                  onClick={() => void execute("correct-name", correctedName)}
+                >
+                  Save Name
+                </button>
+                {identity.correctedName && (
+                  <button
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => void execute("correct-name", null)}
+                  >
+                    Reverse Name Correction
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
       <p>
         {r.personId
-          ? `Linked to ${r.person?.name} (${r.confirmedMemberId})`
-          : "Unmatched — not shown in any caregiver history"}
+          ? `Linked to Member ID ${r.confirmedMemberId}`
+          : "Unmatched"}
       </p>
       {Array.isArray(r.warnings) && r.warnings.length > 0 && (
         <div className="notice">
@@ -990,97 +1116,73 @@ function SurveyDetailForm({
           </ul>
         </div>
       )}
-      <Table
-        headers={["Metric", "Score"]}
-        rows={scoreColumns.map((k, i) => ({
-          id: k,
-          cells: [labels[i], displayScore(r[k])],
-        }))}
-      />
-      {write && !r.personId && (
+      {write && identity && !r.personId && (
         <section>
-          <h3>Confirm caregiver identity</h3>
-          <label>
-            Find caregiver
-            <input
-              aria-label="Find caregiver for survey"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setCandidate(null);
-                setConfirmed(false);
-              }}
-              placeholder="Member ID, name, alias, contact number or birth date"
-            />
-          </label>
+          <h3>Verify the Member ID in CaritaHub</h3>
           <p>
-            Search is limited to authorised caregivers in {r.centre}. A name,
-            alias or birth date is evidence for review, not automatic proof of
-            identity.
+            Search for this caregiver in CaritaHub and verify their Member ID
+            before linking the survey.
           </p>
-          {candidates.error && <p role="alert">{candidates.error}</p>}
-          {!candidates.busy &&
-            search === debounced &&
-            candidates.data?.rows?.map((p) => (
-              <label key={p.id} className="survey-candidate">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void checkMember();
+            }}
+          >
+            <label>
+              Enter Member ID
+              <input
+                value={memberId}
+                maxLength={150}
+                autoComplete="off"
+                disabled={busy}
+                onChange={(event) => {
+                  setMemberId(event.target.value);
+                  setCandidate(null);
+                  setConfirmed(false);
+                  setError("");
+                }}
+              />
+            </label>
+            <div className="actions">
+              <button
+                className="secondary"
+                disabled={busy || editingName || !memberId.trim()}
+              >
+                Check Member ID
+              </button>
+            </div>
+          </form>
+          {candidate && (
+            <>
+              <div className="notice">
+                <div>
+                  P3H record found for Member ID{" "}
+                  <strong>{candidate.memberId}</strong>
+                  <br />
+                  {candidate.centre} · {candidate.status}
+                </div>
+              </div>
+              {candidate.birthDateConflict && (
+                <p className="notice">
+                  The submitted birth date differs from the P3H record. Recheck
+                  the identity before confirming.
+                </p>
+              )}
+              <label className="checkbox-label">
                 <input
-                  type="radio"
-                  name="survey-candidate"
-                  checked={candidate?.id === p.id}
-                  onChange={() => {
-                    setCandidate(p);
-                    setConfirmed(false);
-                  }}
+                  type="checkbox"
+                  checked={confirmed}
+                  disabled={busy || editingName}
+                  onChange={(event) => setConfirmed(event.target.checked)}
                 />
-                <span>
-                  <strong>
-                    {p.name} — {p.memberId}
-                  </strong>
-                  <br />
-                  {p.alias} / {p.centre} /{" "}
-                  {p.contactNumber || "No contact recorded"} /{" "}
-                  {p.dob ? dateLabel(p.dob) : "No birth date"}
-                  <br />
-                  {p.evidence.join(". ") ||
-                    "Search candidate — verify all identifiers"}
-                  {p.conflicts.length > 0 && (
-                    <strong className="error"> {p.conflicts.join(". ")}</strong>
-                  )}
-                </span>
+                I verified this respondent and Member ID in CaritaHub.
               </label>
-            ))}
-          {!candidates.busy &&
-            search === debounced &&
-            candidates.data?.rows?.length === 0 && (
-              <p>
-                No candidates found. Search a Member ID or another authorised
-                identifier.
-              </p>
-            )}
-          <p className="notice">
-            Confirm that this survey belongs to the selected caregiver.
-            Incorrect matching affects survey results and reports.
-          </p>
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={confirmed}
-              onChange={(e) => setConfirmed(e.target.checked)}
-            />
-            I verified this identity using the organisation’s approved process.
-          </label>
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={saveAlias}
-              onChange={(e) => setSaveAlias(e.target.checked)}
-            />
-            Save these submitted initials/name as a verified alias for future
-            suggestions.
-          </label>
+            </>
+          )}
         </section>
       )}
-      {write && (
+      {write && identity && (
         <label>
           Review notes / reason
           <textarea
@@ -1094,26 +1196,42 @@ function SurveyDetailForm({
       {error && (
         <p className="error" role="alert">
           {error}
+          {error.startsWith("This survey changed") && (
+            <button className="secondary" onClick={onReload}>
+              Reload survey
+            </button>
+          )}
         </p>
       )}
-      {write && !r.personId && (
+      {write && identity && !r.personId && (
         <div className="actions">
           <button
-            disabled={busy || !candidate || !confirmed || !notes.trim()}
+            disabled={
+              busy || editingName || !candidate || !confirmed || !notes.trim()
+            }
             onClick={() => void execute("link")}
           >
-            Confirm &amp; Link Survey
+            {onNext ? "Confirm Match & Next" : "Confirm Match"}
           </button>
           <button
             className="secondary"
-            disabled={busy || !notes.trim()}
-            onClick={() => void execute("ambiguous")}
+            disabled={busy || editingName || !notes.trim()}
+            onClick={() => void execute("reject")}
           >
-            Mark identity ambiguous
+            Reject Match
           </button>
+          {onNext && (
+            <button
+              className="secondary"
+              disabled={busy || editingName}
+              onClick={onNext}
+            >
+              Skip to Next Survey
+            </button>
+          )}
         </div>
       )}
-      {manager && r.personId && (
+      {manager && identity && r.personId && (
         <>
           <label className="checkbox-label">
             <input
@@ -1126,119 +1244,150 @@ function SurveyDetailForm({
           </label>
           <button
             className="secondary"
-            disabled={busy || !confirmed || !notes.trim()}
+            disabled={busy || editingName || !confirmed || !notes.trim()}
             onClick={() => void execute("unlink")}
           >
-            Unlink survey
+            Unlink Survey
           </button>
         </>
       )}
-      <details>
-        <summary>Source answers and corrections</summary>
-        <p>
-          Original answers are preserved. Correct only against verified
-          information and record a reason.
-        </p>
-        <div className="form-grid">
-          <label>
-            Corrected phase
-            <select
-              aria-label="Corrected survey phase"
-              disabled={!write}
-              value={phase}
-              onChange={(e) => setPhase(e.target.value)}
-            >
-              {["Baseline", "Annual", "Needs Review"].map((p) => (
-                <option key={p}>{p}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Survey timestamp (Singapore)
-            <input
-              type="datetime-local"
-              disabled={!write}
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </label>
-          <label>
-            Verified birth date
-            <input
-              type="date"
-              disabled={!write}
-              value={dob}
-              onChange={(e) => setDob(e.target.value)}
-            />
-          </label>
-        </div>
-        {questionKeys.map((key, i) => (
-          <label key={key}>
-            {key}: {surveyQuestions[i]}
-            <small>
-              Original:{" "}
-              {String(
-                (r.rawAnswers as Record<string, unknown>)[key] ?? "Missing",
-              )}
-            </small>
-            <select
-              aria-label={`Correct ${key}`}
-              disabled={!write}
-              value={
-                Object.hasOwn(answers, key)
-                  ? (answers[key] ?? "")
-                  : (effective.values[key] ?? "")
-              }
-              onChange={(e) =>
-                setAnswers((xs) => ({
-                  ...xs,
-                  [key]: e.target.value === "" ? null : Number(e.target.value),
-                }))
-              }
-            >
-              <option value="">Missing / not scored</option>
-              {scaleFor(key).map((label, i) => (
-                <option key={i} value={i + (key.startsWith("Z") ? 0 : 1)}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-        ))}
-        {write && (
-          <button
-            disabled={busy || !notes.trim()}
-            onClick={() => void execute("correct")}
-          >
-            Save survey corrections
-          </button>
-        )}
-      </details>
-      <details>
-        <summary>Identity review history and scoring version</summary>
-        <p>{r.method}</p>
-        {r.corrections.map((h) => (
-          <details key={h.id}>
-            <summary>
-              {h.action} by {h.user.name} / {dateLabel(h.timestamp)}
-            </summary>
-            <pre className="survey-summary">
-              {JSON.stringify(h.changes, null, 2)}
-            </pre>
-          </details>
-        ))}
-        {r.reviews.map((h) => (
-          <p key={h.id}>
-            {h.action} / {h.memberId || "Unmatched"} /{" "}
-            {new Date(h.reviewedAt).toLocaleString("en-SG", {
-              timeZone: "Asia/Singapore",
-            })}{" "}
-            / Staff {h.reviewedBy}
-            <br />
-            {h.notes}
+      <Table
+        headers={["Metric", "Score"]}
+        rows={scoreColumns.map((k, i) => ({
+          id: k,
+          cells: [labels[i], displayScore(r[k])],
+        }))}
+      />
+      {identity && (
+        <details>
+          <summary>Source answers and corrections</summary>
+          <p>
+            Original answers are preserved. Correct only against verified
+            information and record a reason.
           </p>
-        ))}
-      </details>
+          <div className="form-grid">
+            <label>
+              Corrected phase
+              <select
+                aria-label="Corrected survey phase"
+                disabled={!write}
+                value={phase}
+                onChange={(e) => setPhase(e.target.value)}
+              >
+                {surveyPhases.map((p) => (
+                  <option key={p}>{p}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Survey timestamp (Singapore)
+              <input
+                type="datetime-local"
+                disabled={!write}
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+              />
+            </label>
+            <label>
+              Verified birth date
+              <input
+                type="date"
+                disabled={!write}
+                value={dob}
+                onChange={(e) => setDob(e.target.value)}
+              />
+            </label>
+          </div>
+          {questionKeys.map((key, i) => (
+            <label key={key}>
+              {key}: {surveyQuestions[i]}
+              <small>
+                Original:{" "}
+                {String(
+                  (r.rawAnswers as Record<string, unknown>)[key] ?? "Missing",
+                )}
+              </small>
+              <select
+                aria-label={`Correct ${key}`}
+                disabled={!write}
+                value={
+                  Object.hasOwn(answers, key)
+                    ? (answers[key] ?? "")
+                    : (effective?.values[key] ?? "")
+                }
+                onChange={(e) =>
+                  setAnswers((xs) => ({
+                    ...xs,
+                    [key]:
+                      e.target.value === "" ? null : Number(e.target.value),
+                  }))
+                }
+              >
+                <option value="">Missing / not scored</option>
+                {scaleFor(key).map((label, i) => (
+                  <option key={i} value={i + (key.startsWith("Z") ? 0 : 1)}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+          {write && (
+            <button
+              disabled={busy || editingName || !notes.trim()}
+              onClick={() => void execute("correct")}
+            >
+              Save survey corrections
+            </button>
+          )}
+        </details>
+      )}
+      {identity && identity.nameHistory.length > 0 && (
+        <details>
+          <summary>Name correction history</summary>
+          <ul>
+            {identity.nameHistory.map((entry) => (
+              <li key={entry.id}>
+                {entry.reviewerName} ·{" "}
+                {new Date(entry.timestamp).toLocaleString("en-SG", {
+                  timeZone: "Asia/Singapore",
+                })}
+                <br />
+                {entry.previous ?? identity.submittedName} →{" "}
+                {entry.corrected ?? identity.submittedName}
+                {entry.notes && <small>{entry.notes}</small>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {identity && (
+        <details>
+          <summary>View Matching History</summary>
+          <p>{r.method}</p>
+          {identity.corrections.map((h) => (
+            <details key={h.id}>
+              <summary>
+                {h.action} by {h.user.name} / {dateLabel(h.timestamp)}
+              </summary>
+              <pre className="survey-summary">
+                {JSON.stringify(h.changes, null, 2)}
+              </pre>
+            </details>
+          ))}
+          {identity.reviews.map((h) => (
+            <p key={h.id}>
+              {h.action} / {h.memberId || "Unmatched"} /{" "}
+              {new Date(h.reviewedAt).toLocaleString("en-SG", {
+                timeZone: "Asia/Singapore",
+              })}{" "}
+              / {h.reviewerName} / {h.method}
+              <br />
+              {h.notes}
+            </p>
+          ))}
+        </details>
+      )}
     </div>
   );
 }

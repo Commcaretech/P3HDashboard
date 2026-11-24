@@ -7,6 +7,16 @@ import { randomBytes, randomUUID, scryptSync } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { resolve } from "node:path";
 import { surveyHeaders } from "../../src/lib/survey-parser";
+import { importSurveys } from "../../src/lib/surveys";
+import { ncssHeaders, ncssImportMode } from "../../src/lib/ncss-matched-csv";
+
+async function seedHistoricalSurveys(fixture: PrismaClient, input: unknown) {
+  const admin = await fixture.user.findUniqueOrThrow({
+    where: { username: "fake.admin" },
+    include: { allowedCentres: true },
+  });
+  return fixture.$transaction((tx) => importSurveys(tx, admin, input));
+}
 
 const password = randomBytes(24).toString("base64url");
 
@@ -249,6 +259,9 @@ test("critical local case-management workflows and server permissions", async ({
     page.getByRole("link", { name: /Fictional Caregiver/ }),
   ).toBeVisible();
   await page.getByRole("link", { name: "Caregivers", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Caregivers", exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Filters", exact: true }).click();
   await page.getByLabel("Centre", { exact: true }).selectOption("Fake Centre");
   await expect(
@@ -1286,6 +1299,14 @@ test("automatic referral workflow, manual date review, resolution, history and n
   );
   expect(grant.followUps).toHaveLength(2);
   expect(grant.resolvedAt).toBeTruthy();
+  const openReferrals = async () => {
+    const response = await context.request.get("/api/grants?open=true&q=HPC");
+    expect(response.ok()).toBe(true);
+    return (await response.json()).grants as { id: string }[];
+  };
+  expect((await openReferrals()).some((row) => row.id === grant.id)).toBe(
+    false,
+  );
   await page.goto(`/people/${person.id}`);
   await page
     .getByRole("button", { name: "Follow-up History", exact: true })
@@ -1303,6 +1324,7 @@ test("automatic referral workflow, manual date review, resolution, history and n
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "Save record", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect((await openReferrals()).some((row) => row.id === grant.id)).toBe(true);
   expect(
     (await (await context.request.get("/api/data")).json()).alerts.filter(
       (a: { grantId: string; status: string }) =>
@@ -2401,7 +2423,7 @@ test("shared pages fit six widths and mobile navigation supports keyboard and re
   ).toBe("none");
 });
 
-test("survey upload, manual identity, corrections, profile history, exports and scoped permissions", async ({
+test("historical survey identity, corrections, profile history, exports and scoped permissions", async ({
   page,
   context,
   browser,
@@ -2497,45 +2519,82 @@ test("survey upload, manual identity, corrections, profile history, exports and 
     row(`${unique}-test`, "", "TEST"),
     row(`${unique}-review`, "After programme", "Different Fictional"),
   ].join("\n");
-  await page.goto("/surveys?view=import");
-  await page.getByLabel("Import centre", { exact: true }).fill("Survey Centre");
-  await page.getByLabel("Survey CSV files", { exact: true }).setInputFiles({
-    name: "English Survey Data.csv",
-    mimeType: "text/csv",
-    buffer: Buffer.from(csv),
+  await seedHistoricalSurveys(fixture, {
+    centre: "Survey Centre",
+    files: [
+      {
+        name: "Fictional historical English.csv",
+        language: "English",
+        content: csv,
+      },
+    ],
   });
-  await page
-    .getByRole("button", { name: "Preview surveys", exact: true })
-    .click();
-  await expect(page.getByText(/Submitted 5; eligible 3;/)).toBeVisible();
-  await page
-    .getByRole("button", { name: "Confirm survey import", exact: true })
-    .click();
+  await page.goto("/surveys?view=review");
   await expect(
-    page.getByRole("heading", { name: /Unmatched Surveys and data review/ }),
+    page.getByRole("heading", { name: /Identity Review/ }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
+  await page.getByRole("button", { name: /^Phases to verify/ }).click();
+  await expect(
+    page.getByRole("combobox", { name: "Data quality", exact: true }),
+  ).toHaveValue("phase");
+  await expect(
+    page.locator("tbody tr").filter({ hasText: "Different Fictional" }),
+  ).toBeVisible();
+  await expect(
+    page.locator("tbody tr").filter({ hasText: "Annual / English" }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Reset survey filters", exact: true })
+    .click();
   await page
     .locator("tbody tr")
     .filter({ hasText: "Annual / English" })
     .getByRole("button", { name: "Review identity", exact: true })
     .click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByLabel("Find caregiver for survey").fill(memberId);
+  await dialog
+    .getByRole("textbox", { name: "Enter Member ID" })
+    .fill("UNKNOWN-MEMBER");
+  await dialog
+    .getByRole("button", { name: "Check Member ID", exact: true })
+    .click();
+  await expect(dialog.getByRole("alert")).toContainText("Member ID not found");
+  const issues = browserIssues.get(page)!;
+  const expectedLookupFailure =
+    "Failed to load resource: the server responded with a status of 400 (Bad Request)";
+  await expect
+    .poll(
+      () => issues.filter((issue) => issue === expectedLookupFailure).length,
+    )
+    .toBe(1);
+  issues.splice(issues.indexOf(expectedLookupFailure), 1);
+  await dialog.getByRole("textbox", { name: "Enter Member ID" }).fill(memberId);
+  await dialog
+    .getByRole("button", { name: "Check Member ID", exact: true })
+    .click();
   await expect(
-    dialog.getByText("Birth date differs", { exact: false }),
+    dialog.getByText("P3H record found for Member ID", { exact: false }),
   ).toBeVisible();
-  await dialog.locator('input[type="radio"]').check();
+  await expect(
+    dialog.getByText("Fictional Survey Caregiver", { exact: true }),
+  ).toHaveCount(0);
   await dialog
     .getByLabel("Survey review notes", { exact: true })
-    .fill(
-      "Verified using fictional independent identifiers despite submitted birth date mismatch.",
-    );
-  await dialog.getByLabel("I verified this identity", { exact: false }).check();
+    .fill("Checked the fictional CaritaHub membership record.");
   await dialog
-    .getByLabel("Save these submitted initials/name", { exact: false })
+    .getByLabel("I verified this respondent", { exact: false })
     .check();
+  await page.setViewportSize({ width: 1440, height: 1280 });
+  await dialog.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await dialog.screenshot({
+    path: "test-results/caritahub-staff-match.png",
+    animations: "disabled",
+  });
   await dialog
-    .getByRole("button", { name: "Confirm & Link Survey", exact: true })
+    .getByRole("button", { name: "Confirm Match", exact: true })
     .click();
   await expect(dialog).toHaveCount(0);
   const records = await (
@@ -2554,6 +2613,8 @@ test("survey upload, manual identity, corrections, profile history, exports and 
       id: unlinked.id,
       version: unlinked.updatedAt,
       personId: caregiver.id,
+      memberId: caregiver.memberId,
+      verificationMethod: "CaritaHub",
       confirmed: true,
       notes: "Fictional verification",
     },
@@ -2569,6 +2630,7 @@ test("survey upload, manual identity, corrections, profile history, exports and 
   await expect(page.getByRole("table").first().locator("tbody tr")).toHaveCount(
     2,
   );
+  await expect(page.locator(".survey-chart .recharts-wrapper")).toHaveCount(2);
   await page
     .getByRole("button", { name: "Export outcomes", exact: true })
     .click();
@@ -2637,11 +2699,7 @@ test("survey upload, manual identity, corrections, profile history, exports and 
       },
     ],
   };
-  expect(
-    (
-      await context.request.post("/api/surveys", { headers, data: otherInput })
-    ).ok(),
-  ).toBe(true);
+  await seedHistoricalSurveys(fixture, otherInput);
   const readonly = await browser.newContext();
   await readonly.request.post(origin + "/api/auth", {
     headers,
@@ -2672,10 +2730,20 @@ test("survey upload, manual identity, corrections, profile history, exports and 
     origin + `/api/surveys?view=detail&id=${first.id}`,
   );
   expect(foreign.status()).toBe(403);
-  const candidates = await restricted.request.get(
-    origin + `/api/surveys?view=candidates&id=${first.id}&q=${memberId}`,
+  const lookup = await restricted.request.post(origin + "/api/surveys", {
+    headers,
+    data: { action: "lookup", id: first.id, memberId },
+  });
+  expect(lookup.status()).toBe(403);
+  expect(
+    (
+      await readonly.request.get(origin + "/api/surveys?view=identity")
+    ).status(),
+  ).toBe(403);
+  const basic = await readonly.request.get(
+    origin + "/api/surveys?view=records",
   );
-  expect(candidates.status()).toBe(403);
+  expect(await basic.text()).not.toContain("Fictional Survey Alias");
   const crossLink = await context.request.post("/api/surveys", {
     headers,
     data: {
@@ -2685,6 +2753,8 @@ test("survey upload, manual identity, corrections, profile history, exports and 
         (r: { personId: string | null }) => !r.personId,
       ).updatedAt,
       personId: other.id,
+      memberId: other.memberId,
+      verificationMethod: "CaritaHub",
       confirmed: true,
       notes: "Wrong centre",
     },
@@ -2709,8 +2779,12 @@ test("survey correction and manager unlink keep originals, audit and alias histo
     headers,
     data: { action: "login", username: "fake.admin", password },
   });
-  await page.goto("/surveys?view=records&q=Different%20Fictional");
+  await page.goto(
+    "/surveys?view=review&centre=Survey%20Centre&match=Unmatched",
+  );
   await page
+    .getByRole("row")
+    .filter({ hasText: "Different Fictional" })
     .getByRole("button", { name: "Review identity", exact: true })
     .click();
   let dialog = page.getByRole("dialog");
@@ -2730,25 +2804,28 @@ test("survey correction and manager unlink keep originals, audit and alias histo
   await expect(dialog).toHaveCount(0);
   const updated = await (
     await context.request.get(
-      "/api/surveys?view=records&q=Different%20Fictional",
+      "/api/surveys?view=identity&centre=Survey%20Centre&match=Unmatched",
     )
   ).json();
-  expect(updated.rows[0].phase).toBe("Annual");
-  expect(updated.rows[0].physical).toBe(57.14);
+  const changed = updated.rows.find(
+    (row: { identityStage?: { submittedName: string } }) =>
+      row.identityStage?.submittedName === "Different Fictional",
+  );
+  expect(changed.phase).toBe("Annual");
+  expect(changed.physical).toBe(57.14);
   const details = await (
     await context.request.get(
-      `/api/surveys?view=detail&id=${updated.rows[0].id}`,
+      `/api/surveys?view=detail&identity=1&id=${changed.id}`,
     )
   ).json();
   expect(details.rawAnswers.Q3).toBe("3");
   expect(details.phaseText).toBe("After programme");
-  expect(details.corrections.length).toBe(1);
-  await page.goto("/surveys?view=records&centre=Survey%20Centre");
+  expect(details.identity.corrections.length).toBe(1);
+  await page.goto("/surveys?view=records&centre=Survey%20Centre&match=Linked");
   await page
     .locator("tbody tr")
-    .filter({ hasText: "Fictional Survey Caregiver" })
     .filter({ hasText: "Annual / English" })
-    .getByRole("button", { name: "View survey", exact: true })
+    .getByRole("button", { name: "Review identity", exact: true })
     .click();
   dialog = page.getByRole("dialog");
   await dialog
@@ -2756,7 +2833,7 @@ test("survey correction and manager unlink keep originals, audit and alias histo
     .fill("Fictional mistaken identity, unlink while retaining source.");
   await dialog.getByLabel("I confirm unlinking.", { exact: false }).check();
   await dialog
-    .getByRole("button", { name: "Unlink survey", exact: true })
+    .getByRole("button", { name: "Unlink Survey", exact: true })
     .click();
   await expect(dialog).toHaveCount(0);
   const fixture = new PrismaClient({
@@ -2769,10 +2846,9 @@ test("survey correction and manager unlink keep originals, audit and alias histo
     await fixture.personAlias.count({
       where: { text: "Fictional Survey Alias", verified: false },
     }),
-  ).toBe(1);
+  ).toBe(0);
   await fixture.$disconnect();
 });
-<<<<<<< HEAD
 
 test("Trash and Restore work for every main record type without erasing linked history", async ({
   page,
@@ -2901,8 +2977,8 @@ test("Trash and Restore work for every main record type without erasing linked h
     {
       type: "survey",
       id: survey.id,
-      path: "/surveys?view=records&q=Fictional%20Trash%20Survey",
-      label: survey.cleanedName,
+      path: `/surveys?view=records&q=${encodeURIComponent(survey.id)}`,
+      label: survey.confirmedMemberId || survey.id,
     },
   ];
   for (const record of cases) {
@@ -2991,7 +3067,9 @@ test("Trash and Restore work for every main record type without erasing linked h
     },
   });
   await page.goto("/trash?type=person&q=Fictional%20Trash%20Caregiver");
-  const mobileTrashRow = page.locator("tbody tr").filter({ hasText: person.name });
+  const mobileTrashRow = page
+    .locator("tbody tr")
+    .filter({ hasText: person.name });
   await expect(mobileTrashRow).toBeVisible();
   for (const width of [1440, 768, 390, 375]) {
     await page.setViewportSize({ width, height: 1000 });
@@ -3046,5 +3124,468 @@ test("Trash and Restore work for every main record type without erasing linked h
   await restricted.close();
   await fixture.$disconnect();
 });
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
+
+test("staff correct names and confirm each survey in a review queue", async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: "http://127.0.0.1:3100" };
+  await context.request.post("/api/auth", {
+    headers,
+    data: { action: "login", username: "fake.admin", password },
+  });
+  const fixture = new PrismaClient({
+    datasourceUrl: `file:${resolve("data/e2e.db").replace(/\\/g, "/")}`,
+  });
+  try {
+    const centre = "Fictional Sequential Review Centre";
+    const caregiver = await fixture.person.create({
+      data: {
+        kind: "Member",
+        name: "Fictional Lin Hua",
+        centre,
+        memberId: `QUEUE-${randomUUID()}`,
+      },
+    });
+    const quote = (values: string[]) =>
+      values.map((value) => '"' + value.replaceAll('"', '""') + '"').join(",");
+    const imported = await seedHistoricalSurveys(fixture, {
+      action: "import",
+      centre,
+      files: [
+        {
+          language: "English",
+          name: "fictional-queue.csv",
+          content: [
+            quote(surveyHeaders),
+            ...["Fictional Lin Hwa", "F. L. H."].map((name) =>
+              quote([
+                randomUUID(),
+                "13/11/2026 10:00",
+                name,
+                "",
+                "At the start of / Before the programme",
+                "Yes",
+                ...Array(26).fill("3"),
+                ...Array(6).fill("2"),
+              ]),
+            ),
+          ].join("\n"),
+        },
+      ],
+    });
+    const batchId = imported.batches[0].id;
+    const original = await fixture.surveyResponse.findMany({
+      where: { batchId },
+      include: { identityStage: true },
+      orderBy: { id: "asc" },
+    });
+
+    await page.goto(
+      `/surveys?view=records&centre=${encodeURIComponent(centre)}`,
+    );
+    await page
+      .getByRole("button", { name: "Review unmatched surveys", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog");
+    await dialog
+      .getByRole("button", { name: "Correct Display Name", exact: true })
+      .click();
+    await dialog
+      .getByLabel("Corrected display name", { exact: true })
+      .fill("Fictional Lin Hua");
+    await dialog
+      .getByLabel("Reason for name correction (optional)", { exact: true })
+      .fill("Checked with fictional centre staff");
+    await dialog
+      .getByRole("button", { name: "Save Name", exact: true })
+      .click();
+    await expect(
+      dialog.getByRole("heading", { name: "Fictional Lin Hua", exact: true }),
+    ).toBeVisible();
+    await dialog.getByText("Name correction history", { exact: true }).click();
+    await expect(
+      dialog.getByText("Checked with fictional centre staff", { exact: true }),
+    ).toBeVisible();
+
+    await dialog
+      .getByRole("textbox", { name: "Enter Member ID" })
+      .fill(caregiver.memberId!);
+    await dialog
+      .getByRole("button", { name: "Check Member ID", exact: true })
+      .click();
+    await expect(
+      dialog.getByText("P3H record found for Member ID", { exact: false }),
+    ).toBeVisible();
+    await dialog
+      .getByLabel("Survey review notes", { exact: true })
+      .fill("Verified using the fictional member register");
+    const confirm = dialog.getByRole("button", {
+      name: "Confirm Match & Next",
+      exact: true,
+    });
+    await expect(confirm).toBeDisabled();
+    await dialog
+      .getByLabel("I verified this respondent", { exact: false })
+      .check();
+    await confirm.click();
+    await expect(
+      dialog.getByText(
+        `Original submission: ${original[1].identityStage!.submittedName}`,
+        {
+          exact: false,
+        },
+      ),
+    ).toBeVisible();
+    await expect(confirm).toBeDisabled();
+    await dialog
+      .getByRole("button", { name: "Skip to Next Survey", exact: true })
+      .click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    const first = await fixture.surveyResponse.findUniqueOrThrow({
+      where: { id: original[0].id },
+      include: { identityStage: true },
+    });
+    const second = await fixture.surveyResponse.findUniqueOrThrow({
+      where: { id: original[1].id },
+    });
+    expect(first.identityStage!.correctedName).toBe("Fictional Lin Hua");
+    expect(first.identityStage!.submittedName).toBe(
+      original[0].identityStage!.submittedName,
+    );
+    expect(first.rawAnswers).toEqual(original[0].rawAnswers);
+    expect(first.confirmedMemberId).toBe(caregiver.memberId);
+    expect(second.personId).toBeNull();
+
+    await page
+      .getByRole("combobox", { name: "Matching status", exact: true })
+      .selectOption("Corrected");
+    await expect(
+      page.getByRole("heading", { name: "Survey Records (1)", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Review identity", exact: true })
+      .click();
+    await dialog
+      .getByRole("button", { name: "Correct Display Name", exact: true })
+      .click();
+    await dialog
+      .getByRole("button", { name: "Reverse Name Correction", exact: true })
+      .click();
+    await expect(
+      dialog.getByRole("heading", {
+        name: original[0].identityStage!.cleanedName,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await dialog
+      .getByRole("link", { name: "View Survey History", exact: true })
+      .click();
+    await expect(page).toHaveURL(
+      new RegExp(`/people/${caregiver.id}\\?tab=surveys`),
+    );
+    await expect(
+      page.getByRole("heading", { name: "Survey Records (1)", exact: true }),
+    ).toBeVisible();
+    expect(
+      (
+        await fixture.surveyIdentityStage.findUniqueOrThrow({
+          where: { responseId: first.id },
+        })
+      ).correctedName,
+    ).toBeNull();
+  } finally {
+    await fixture.$disconnect();
+  }
+});
+
+test("NCSS CSV stays in the browser and verified responses import on desktop and tablet", async ({
+  page,
+  context,
+}) => {
+  const origin = "http://127.0.0.1:3100";
+  const headers = { Origin: origin };
+  const fixture = new PrismaClient({
+    datasourceUrl: `file:${resolve("data/e2e.db").replace(/\\/g, "/")}`,
+  });
+  try {
+    const centre = "Fictional NCSS Centre";
+    const createStaff = async (
+      role: "Admin" | "Staff",
+      allowedCentre: string,
+    ) => {
+      const salt = randomBytes(16).toString("hex");
+      return fixture.user.create({
+        data: {
+          username: `fictional-ncss-${randomUUID()}`,
+          name: "Fictional NCSS Tester",
+          passwordHash: `${salt}:${scryptSync(password, salt, 64).toString("hex")}`,
+          role,
+          allCentres: role === "Admin",
+          allowedCentres: { create: [{ centre: allowedCentre }] },
+        },
+      });
+    };
+    const admin = await createStaff("Admin", centre);
+    const staff = await createStaff("Staff", "Fictional Restricted Centre");
+    const login = await context.request.post("/api/auth", {
+      headers,
+      data: { action: "login", username: admin.username, password },
+    });
+    expect(login.ok()).toBe(true);
+
+    const member = await fixture.person.create({
+      data: {
+        memberId: "000017",
+        name: "Fictional Excel Keeper",
+        kind: "Member",
+        centre,
+      },
+    });
+    const replacement = await fixture.person.create({
+      data: {
+        memberId: "000018",
+        name: "Fictional Replacement",
+        kind: "Member",
+        centre,
+      },
+    });
+    const template = await context.request.get("/api/surveys/template");
+    expect(template.ok()).toBe(true);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      (await template.body()) as unknown as ExcelJS.Buffer,
+    );
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual([
+      "CaritaHub Mapping",
+      "NCSS Matched Survey",
+    ]);
+
+    const q = (values: string[]) =>
+      values.map((v) => '"' + v.replaceAll('"', '""') + '"').join(",");
+    const sourceId = () => randomBytes(12).toString("hex");
+    const row = (
+      id: string,
+      memberId: string,
+      name = "Fictional, Private\nName",
+      consent = "Yes",
+      date = "26/3/2026 10:50",
+      phase = "At the start of / Before the programme",
+    ) =>
+      q([
+        id,
+        date,
+        name,
+        "01/01/1901",
+        phase,
+        consent,
+        ...Array(26).fill("3"),
+        ...Array(6).fill("0"),
+        "Private demographic text",
+        "Private demographic text",
+        memberId,
+      ]);
+    const firstId = sourceId();
+    const csv = [
+      q([...ncssHeaders, "Member ID"]),
+      row(firstId, member.memberId!),
+      row(
+        sourceId(),
+        member.memberId!,
+        undefined,
+        undefined,
+        "27/4/2026 10:50",
+        "At the end of / After the programme",
+      ),
+      row(sourceId(), "UNKNOWN-999"),
+      row(sourceId(), ""),
+      row(sourceId(), member.memberId!, "Test Fixture"),
+      row(sourceId(), member.memberId!, "Fictional Declined", "No"),
+    ].join("\n");
+    const posts: Record<string, unknown>[] = [];
+    let failNextImport = true;
+    await page.route("**/api/surveys", async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      const payload = route.request().postDataJSON();
+      posts.push(payload);
+      if (payload.action === "import" && failNextImport) {
+        failNextImport = false;
+        return route.fulfill({
+          status: 500,
+          json: { error: "Fictional connection interrupted" },
+        });
+      }
+      await new Promise((done) => setTimeout(done, 350));
+      return route.continue();
+    });
+    await page.goto("/surveys?view=import");
+    await expect(
+      page.getByRole("heading", { name: "Import NCSS Survey Results" }),
+    ).toBeVisible();
+    await page.getByLabel("Import centre").selectOption(centre);
+    const input = {
+      name: "fictional-private-file-name.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(csv),
+    };
+    await page.getByLabel("Matched survey CSV").setInputFiles(input);
+    await page.getByRole("button", { name: "Preview responses" }).click();
+    await expect(
+      page.getByRole("button", { name: "Preview responses" }),
+    ).toBeDisabled();
+    await expect(
+      page.getByText(/6 submitted.*2 ready.*2 rejected/),
+    ).toBeVisible();
+    await expect(page.getByText("Member ID unavailable")).toBeVisible();
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await page.getByRole("button", { name: "Import Valid Responses" }).click();
+    await expect(page.getByRole("main").getByRole("alert")).toContainText(
+      "Fictional connection interrupted",
+    );
+    const issues = browserIssues.get(page)!;
+    expect(issues.filter((issue) => issue.includes("500"))).toHaveLength(1);
+    issues.splice(
+      issues.findIndex((issue) => issue.includes("500")),
+      1,
+    );
+    expect(
+      await fixture.surveyResponse.count({
+        where: { importMode: ncssImportMode },
+      }),
+    ).toBe(0);
+    await page.getByRole("button", { name: "Import Valid Responses" }).click();
+    await expect(
+      page.getByText(/2 responses imported successfully/),
+    ).toBeVisible();
+    for (const post of posts) {
+      const body = JSON.stringify(post);
+      for (const value of [
+        "Fictional, Private",
+        "01/01/1901",
+        "Private demographic",
+        "Fictional Declined",
+        "Test Fixture",
+        "fictional-private-file-name",
+      ])
+        expect(body).not.toContain(value);
+      expect(post.rows).toHaveLength(4);
+      expect(Object.keys((post.rows as object[])[0]).sort()).toEqual([
+        "answers",
+        "consent",
+        "memberId",
+        "phase",
+        "rowNumber",
+        "sourceResponseId",
+        "surveyDate",
+      ]);
+    }
+    expect(
+      await fixture.surveyIdentityStage.count({
+        where: { response: { importMode: ncssImportMode } },
+      }),
+    ).toBe(0);
+    await page.getByLabel("Matched survey CSV").setInputFiles(input);
+    await page.getByRole("button", { name: "Preview responses" }).click();
+    await expect(page.getByText(/2 already imported/)).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Import Valid Responses" }),
+    ).toBeDisabled();
+
+    const largeCSV =
+      [
+        q([...ncssHeaders, "Member ID"]),
+        ...Array.from({ length: 5000 }, () =>
+          row(sourceId(), member.memberId!),
+        ),
+      ].join("\r\n") + "\r\n";
+    await page
+      .getByLabel("Matched survey CSV")
+      .setInputFiles({ ...input, buffer: Buffer.from(largeCSV) });
+    await page.getByRole("button", { name: "Preview responses" }).click();
+    await expect(page.getByText(/5000 submitted.*5000 ready/)).toBeVisible({
+      timeout: 15000,
+    });
+
+    const unexpected = await context.request.post("/api/surveys", {
+      headers,
+      data: { ...posts[0], files: [{ content: "Fictional sensitive source" }] },
+    });
+    expect(unexpected.status()).toBe(400);
+    expect(await unexpected.text()).not.toContain("Fictional sensitive source");
+
+    const restricted = await context.browser()!.newContext({ baseURL: origin });
+    try {
+      await restricted.request.post("/api/auth", {
+        headers,
+        data: { action: "login", username: staff.username, password },
+      });
+      expect(
+        (
+          await restricted.request.post("/api/surveys", {
+            headers,
+            data: posts[0],
+          })
+        ).status(),
+      ).toBe(403);
+    } finally {
+      await restricted.close();
+    }
+    await page.goto(
+      `/surveys?view=results&centre=${encodeURIComponent(centre)}`,
+    );
+    await expect(
+      page.getByRole("heading", { name: "Survey scores over time" }),
+    ).toBeVisible();
+    await expect(page.locator(".survey-chart .recharts-wrapper")).toHaveCount(
+      2,
+    );
+    await page.goto(`/people/${member.id}?tab=surveys`);
+    await expect(
+      page.getByRole("heading", { name: "Survey Records (2)" }),
+    ).toBeVisible();
+    await expect(page.getByText("Follow-up / English")).toBeVisible();
+    await page
+      .getByRole("row")
+      .filter({ hasText: "Baseline / English" })
+      .getByRole("button", { name: "Review import" })
+      .click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByText("Correct Member ID", { exact: true }).click();
+    await dialog
+      .getByLabel("Replacement Member ID")
+      .fill(replacement.memberId!);
+    await dialog.getByRole("button", { name: "Check Member ID" }).click();
+    await dialog
+      .getByRole("checkbox", { name: /I verified that this response belongs/ })
+      .check();
+    await dialog
+      .getByLabel("Reason for Member ID correction")
+      .fill("Fictional mapping verified again");
+    await dialog
+      .getByRole("button", { name: "Confirm Member ID correction" })
+      .click();
+    await expect(dialog).toBeHidden();
+    await expect
+      .poll(
+        async () =>
+          (
+            await fixture.surveyResponse.findFirstOrThrow({
+              where: { sourceResponseId: firstId },
+            })
+          ).confirmedMemberId,
+      )
+      .toBe(replacement.memberId);
+    await page.goto(`/people/${replacement.id}?tab=surveys`);
+    await expect(
+      page.getByRole("heading", { name: "Survey Records (1)" }),
+    ).toBeVisible();
+    await context.clearCookies();
+    expect(
+      (
+        await context.request.post("/api/surveys", { headers, data: posts[0] })
+      ).status(),
+    ).toBe(401);
+  } finally {
+    await fixture.$disconnect();
+  }
+});

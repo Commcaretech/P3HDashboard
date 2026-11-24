@@ -2,18 +2,15 @@
 
 An internal staff workspace for caregiver/member records, separate linked care recipients, Excel imports, programme matching, grants, reminders and caseload reporting. The default local configuration stores records in SQLite on the hosting computer. An optional Render + Supabase PostgreSQL configuration is now available; in that mode, records and uploads are processed by those hosting providers. No analytics, AI service or remote fonts are used. Optional staff reminder emails use an explicitly configured HTTPS provider.
 
-<<<<<<< HEAD
 ## Trash and Restore
 
 Admin and Manager accounts can use **Move to Trash** on caregivers, recipients, grants, programmes and survey responses, then recover them through **Trash**. Linked history is retained. See [Trash and Restore](docs/trash-and-restore.md). Upgrade with the additive `202611130002_record_trash` migration after a protected backup and rehearsal; nothing is permanently erased.
 
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
 ## Surveys & Outcomes
 
-The staff workspace includes previewed multilingual CSV imports, P3H WHOQOL scoring, a separate six-item ZBI survey, unmatched identity review, verified aliases, caregiver survey history and permission-scoped exports. Read the [survey staff guide](docs/surveys-staff-guide.md) and [implementation, methodology and deployment report](docs/surveys-outcomes.md).
+For new NCSS uploads, match names to existing Member IDs with the downloadable Excel template in **Surveys & Outcomes / Import Surveys**. The browser removes source identifying columns before the request. See [How to Import NCSS Survey Results into P3H Dashboard](docs/ncss-survey-import.md) for the staff workflow, P3H scoring, and the additive SQLite and Supabase migration. Leave `NCSS_SURVEY_IMPORT_APPROVAL` unset until the organisation approves processing and hosting.
 
-Upgrade with the additive `202611130001_surveys_outcomes` migration after a verified backup and isolated rehearsal. Use the existing local or cloud migration commands for the intended database. No operational data or real survey responses are imported by development tests. The complete-domain scoring policy is provisional pending P3H approval.
+The [historical survey review guide](docs/caritahub-staff-quick-guide.md) covers manual CaritaHub review for responses imported before the matched-CSV workflow. Existing survey history, verified aliases, and permission-scoped exports remain available.
 
 ## Updated staff workflows
 
