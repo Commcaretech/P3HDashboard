@@ -62,10 +62,17 @@ export function parseDate(value: unknown, date1904 = false): string {
       .slice(0, 10);
   }
   const s = clean(value);
-  const m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  // Dates arrive as plain YYYY-MM-DD strings, DD/MM/YYYY strings, Excel
+  // serials, Date objects — and, from the API, full ISO datetimes such as
+  // 2026-11-27T08:05:12.000Z. The time part carries no extra meaning for a
+  // calendar date, so accept it and validate the date part. Without this,
+  // lastContactDate throws for every caregiver whose dates arrive as ISO
+  // datetimes, which crashes the profile page.
+  const dated = s.length > 10 && s[10] === "T" ? s.slice(0, 10) : s;
+  const m = dated.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
   const iso = m
     ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`
-    : s;
+    : dated;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "";
   const d = new Date(iso + "T00:00:00Z");
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === iso

@@ -610,3 +610,39 @@ test("targeted reminder reconciliation preserves another person's outstanding re
   assert.equal(untouched.status, "Pending");
   assert.equal(untouched.sourceKey, reminder.sourceKey);
 });
+
+test("notifications job accepts GET for Vercel Cron and POST for external schedulers, both behind a bearer secret", async () => {
+  process.env.NOTIFICATION_JOB_SECRET = "a".repeat(32);
+  process.env.CRON_SECRET = "b".repeat(32);
+  const { GET, POST } = await import(
+    "../src/app/api/jobs/notifications/route"
+  );
+  const { NextRequest } = await import("next/server");
+  const url = "https://p3h.example.test/api/jobs/notifications";
+  assert.equal((await GET(new NextRequest(url))).status, 401);
+  assert.equal(
+    (
+      await GET(
+        new NextRequest(url, {
+          headers: { authorization: "Bearer wrong" },
+        }),
+      )
+    ).status,
+    401,
+  );
+  // Email is not configured in this test environment, so an authorised run
+  // reports configured:false and sends nothing.
+  for (const [fn, method, token] of [
+    [GET, "GET", "b".repeat(32)],
+    [POST, "POST", "a".repeat(32)],
+  ] as const) {
+    const res = await fn(
+      new NextRequest(url, {
+        method,
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    );
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { configured: false, processed: 0 });
+  }
+});
