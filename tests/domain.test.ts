@@ -24,6 +24,11 @@ test("Excel serial dates handle both epochs and the fictitious leap day", () => 
   assert.equal(parseDate(0, true), "1904-01-01");
   assert.equal(parseDate("31/02/2026"), "");
   assert.equal(parseDate("11/10/2026"), "2026-10-11");
+  // Full ISO datetimes arrive from the API (createdAt, onboardingDate).
+  // The time part carries no extra meaning for a calendar date.
+  assert.equal(parseDate("2026-11-27T08:05:12.000Z"), "2026-11-27");
+  assert.equal(parseDate("2026-11-27T08:05:12+08:00"), "2026-11-27");
+  assert.equal(parseDate("2026-02-30T00:00:00Z"), "");
 });
 test("languages normalize and deduplicate", () =>
   assert.deepEqual(categories(" English, english , MANDARIN "), [

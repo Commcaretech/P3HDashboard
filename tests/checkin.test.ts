@@ -108,6 +108,28 @@ test("due at exactly 30 days, not due at 29 days", async () => {
   assert.equal(alert.priority, "Normal");
   assert.deepEqual(await checkins(notDue.id), []);
 });
+test("last contact accepts ISO datetimes from the API", () => {
+  // Profile pages receive dates as full ISO datetimes; rejecting them made
+  // lastContactDate throw and the profile page fail to load.
+  assert.equal(
+    lastContactDate({ createdAt: "2026-11-27T08:05:12.000Z" }),
+    "2026-11-27",
+  );
+  assert.equal(
+    lastContactDate({
+      lastContactedAt: "2026-03-01T10:00:00.000Z",
+      onboardingDate: "2026-01-15T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    }),
+    "2026-03-01",
+  );
+  assert.equal(
+    lastContactDate({ createdAt: "2026-01-01T00:00:00.000Z" }, [
+      "2026-04-01T09:30:00.000Z",
+    ]),
+    "2026-04-01",
+  );
+});
 test("no duplicate alert on repeated reconcile", async () => {
   const p = await makeMember("CHECKIN-DEDUP", {
     onboardingDate: new Date(addDays(date, -40)),

@@ -35,7 +35,7 @@ Generate a job secret locally with `node -e "console.log(require('node:crypto').
 
 ## Schedule the independent job
 
-Use an external HTTPS scheduler or a separately provisioned cron job; the web server does not keep a background timer. Configure:
+Use an external HTTPS scheduler or a separately provisioned cron job; the web server does not keep a background timer. The Vercel deployment already schedules it: `vercel.json` runs `GET /api/jobs/notifications` daily at `30 0 * * *` UTC, which is **8:30 AM Asia/Singapore**. Vercel Cron sends that request with `Authorization: Bearer <CRON_SECRET>` automatically when `CRON_SECRET` is set, and the endpoint accepts either that or `NOTIFICATION_JOB_SECRET`, so set `CRON_SECRET` in Vercel to a new random secret of at least 32 characters (generate one with `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`). The daily schedule fits the Hobby plan's cron limit. If the deployment ever moves off Vercel, configure an external scheduler instead:
 
 - Method: POST
 - URL: `https://<your actual dashboard host>/api/jobs/notifications`
