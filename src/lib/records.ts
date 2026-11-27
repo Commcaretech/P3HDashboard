@@ -155,11 +155,13 @@ export async function savePerson(
       !before ||
       ["conditions", "primaryCondition"].some((key) => supplied.has(key)),
   };
-  if (touched.language)
+  // A new person has no links to clear; the deletes below are no-ops for
+  // them and only cost database round-trips on bulk imports.
+  if (before && touched.language)
     await tx.personLanguage.deleteMany({ where: { personId: p.id } });
-  if (touched.interest)
+  if (before && touched.interest)
     await tx.personInterest.deleteMany({ where: { personId: p.id } });
-  if (touched.medicalCondition)
+  if (before && touched.medicalCondition)
     await tx.personCondition.deleteMany({ where: { personId: p.id } });
   for (const [type, values] of [
     [

@@ -5,6 +5,7 @@ import {
 } from "@/lib/access";
 import { NextRequest, NextResponse } from "next/server";
 import { extractMemberSupport } from "@/lib/support-extraction";
+import { supportFromNotes } from "@/lib/support-notes";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/auth";
@@ -183,7 +184,12 @@ export async function POST(req: NextRequest) {
               r.raw as Prisma.InputJsonValue,
               r.existing?.updatedAt,
             );
-            await extractMemberSupport(tx, user.id, p.id);
+            // extractMemberSupport re-reads the member only to check its
+            // remarks; skip that round-trip when the remarks hold no
+            // support suggestion. The text checked here is the same text
+            // savePerson just stored.
+            if (supportFromNotes(String(r.raw.Remark ?? "")).length)
+              await extractMemberSupport(tx, user.id, p.id);
             if (r.confirmedRecipient) {
               if (!r.recipientName?.trim())
                 throw new Error(

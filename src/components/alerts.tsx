@@ -1,5 +1,6 @@
 "use client";
 import { FollowUpDialog } from "./follow-up-dialog";
+import { CheckInDialog } from "./checkin-dialog";
 import { Alert } from "@/lib/types";
 import { useState } from "react";
 import { today } from "@/lib/domain";
@@ -31,6 +32,7 @@ export default function Alerts({
   ) => Promise<void>;
 }) {
   const [followUp, setFollowUp] = useState<Alert | null>(null);
+  const [checkIn, setCheckIn] = useState<Alert | null>(null);
   const [f, setF] = useFilters();
   const [snooze, setSnooze] = useState<string | null>(null),
     [date, setDate] = useState(""),
@@ -77,8 +79,9 @@ export default function Alerts({
         </div>
       )}
       <p>
-        Birthday and grant reminders run through the scheduled job and after
-        record changes. Repeated refreshes do not create duplicate alerts.
+        Birthday, grant and monthly check-in reminders run through the
+        scheduled job and after record changes. Repeated refreshes do not
+        create duplicate alerts.
       </p>
       <div className="tabs">
         {[
@@ -173,16 +176,20 @@ export default function Alerts({
                               onClick={() =>
                                 a.grantId && a.type === "Grant review"
                                   ? setFollowUp(a)
-                                  : void action(
-                                      "alertStatus",
-                                      { status: "Completed" },
-                                      a.id,
-                                    )
+                                  : a.type === "Monthly check-in"
+                                    ? setCheckIn(a)
+                                    : void action(
+                                        "alertStatus",
+                                        { status: "Completed" },
+                                        a.id,
+                                      )
                               }
                             >
                               {a.grantId && a.type === "Grant review"
                                 ? "Mark Follow-up Done"
-                                : "Complete"}
+                                : a.type === "Monthly check-in"
+                                  ? "Record check-in"
+                                  : "Complete"}
                             </button>
                             <button
                               className="secondary"
@@ -242,6 +249,16 @@ export default function Alerts({
           d={d}
           action={followUpAction ?? action}
           onClose={() => setFollowUp(null)}
+        />
+      )}
+      {checkIn && checkIn.personId && (
+        <CheckInDialog
+          personId={checkIn.personId}
+          personName={label(
+            d.people.find((p) => p.id === checkIn.personId)!,
+          )}
+          action={action}
+          onClose={() => setCheckIn(null)}
         />
       )}
       {snooze && (

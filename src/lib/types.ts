@@ -12,6 +12,7 @@ export type Person = {
   workingStatus: string;
   preferredLanguage: string;
   onboardingDate: string | null;
+  lastContactedAt?: string | null;
   status: string;
   mobility: string;
   hearing: string;

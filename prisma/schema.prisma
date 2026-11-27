@@ -56,6 +56,7 @@ model Person {
  workingStatus String @default("")
  preferredLanguage String @default("")
  onboardingDate DateTime?
+ lastContactedAt DateTime?
  status String @default("Active")
  mobility String @default("")
  hearing String @default("")

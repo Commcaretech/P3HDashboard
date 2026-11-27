@@ -1,6 +1,10 @@
 "use client";
 import {apiFetch} from "@/lib/client-http";
 import { bulkReview, reviewCategory } from "@/lib/import-review";
+import {
+  IMPORT_COMMIT_CHUNK_SIZE,
+  commitImportChunks,
+} from "@/lib/import-chunks";
 import { useState } from "react";
 import Link from "next/link";
 import type { ImportRow } from "@/lib/importer";
@@ -40,6 +44,10 @@ export default function ImportWizard({
     [review, setReview] = useState<ReviewRow | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
+    [progress, setProgress] = useState<{
+      done: number;
+      total: number;
+    } | null>(null),
     [summary, setSummary] = useState<{
       created: number;
       updated: number;
@@ -434,7 +442,9 @@ export default function ImportWizard({
             Confirming import also adds recognised Receiving, Received and
             Completed support from member remarks to Grants &amp; Support.
             Existing schemes are skipped; original text is retained and dates
-            and amounts require staff review.
+            and amounts require staff review. Rows are saved in batches of{" "}
+            {IMPORT_COMMIT_CHUNK_SIZE}, so a large file uploads all at once
+            without one long transaction failing.
           </p>
           <div className="actions">
             <button
@@ -443,22 +453,39 @@ export default function ImportWizard({
                 void work(async () => {
                   if (
                     !window.confirm(
-                      `Import ${rows.filter((r) => r.action !== "Skip").length} selected rows? Existing rows selected for update will be replaced with the reviewed values.`,
+                      `Import ${rows.filter((r) => r.action !== "Skip").length} selected rows? They will be saved in batches of ${IMPORT_COMMIT_CHUNK_SIZE}. Existing rows selected for update will be replaced with the reviewed values.`,
                     )
                   )
                     return;
-                  const j = await post({
-                    action: "commit",
-                    filename: book.filename,
+                  setProgress({ done: 0, total: rows.length });
+                  const result = await commitImportChunks(
                     rows,
+                    book.filename,
+                    post,
+                    (done) => setProgress({ done, total: rows.length }),
+                  );
+                  setProgress(null);
+                  setSummary({
+                    created: result.created,
+                    updated: result.updated,
+                    skipped: result.skipped,
                   });
-                  setSummary(j);
+                  if (result.error) {
+                    setError(
+                      `Saved ${result.attempted} of ${result.total} rows before the server stopped responding (${result.error}). Nothing already saved was lost. Re-upload the same file and preview again — the saved rows will appear as existing records and be skipped — then confirm the rest.`,
+                    );
+                    return;
+                  }
                   setStage(4);
                   await onImported();
                 })
               }
             >
-              {busy ? "Saving transaction…" : "Confirm import"}
+              {busy
+                ? progress
+                  ? `Saving… ${progress.done}/${progress.total} rows`
+                  : "Saving transaction…"
+                : "Confirm import"}
             </button>
             <button
               className="secondary"
