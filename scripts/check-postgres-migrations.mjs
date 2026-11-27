@@ -34,7 +34,6 @@ try {
       "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename",
     )
   ).rows.map((r) => r.tablename);
-<<<<<<< HEAD
   const originalColumns = new Map();
   for (const table of tables)
     originalColumns.set(
@@ -46,8 +45,6 @@ try {
         )
       ).rows.map((r) => r.column_name),
     );
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
   const before = new Map();
   for (const table of tables)
     before.set(
@@ -60,7 +57,6 @@ try {
       "utf8",
     ),
   );
-<<<<<<< HEAD
   for (const name of folders.filter((n) => n > "202611130001_surveys_outcomes"))
     await pg.exec(
       readFileSync(`prisma/cloud/migrations/${name}/migration.sql`, "utf8"),
@@ -77,11 +73,6 @@ try {
           )
         ).rows,
       ),
-=======
-  for (const table of tables)
-    assert.equal(
-      JSON.stringify((await pg.query(`SELECT * FROM "${table}"`)).rows),
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
       before.get(table),
       `Preserve ${table}`,
     );
@@ -104,11 +95,7 @@ try {
   );
   await assert.rejects(
     pg.exec(
-<<<<<<< HEAD
       `INSERT INTO "SurveyResponse"(id,"batchId","sourceKey","contentHash","sourceResponseId","rowNumber",centre,language,"submittedName","cleanedName","timestampText","surveyDate","dobText",dob,"phaseText",phase,"personId","confirmedMemberId","matchStatus","rawAnswers",answers,method,warnings,physical,psychological,social,environment,overall,zbi,"createdAt","updatedAt") SELECT 'duplicate',"batchId","sourceKey","contentHash","sourceResponseId","rowNumber",centre,language,"submittedName","cleanedName","timestampText","surveyDate","dobText",dob,"phaseText",phase,"personId","confirmedMemberId","matchStatus","rawAnswers",answers,method,warnings,physical,psychological,social,environment,overall,zbi,"createdAt","updatedAt" FROM "SurveyResponse" WHERE id='survey'`,
-=======
-      `INSERT INTO "SurveyResponse" SELECT 'duplicate',"batchId","sourceKey","contentHash","sourceResponseId","rowNumber",centre,language,"submittedName","cleanedName","timestampText","surveyDate","dobText",dob,"phaseText",phase,"personId","confirmedMemberId","matchStatus","rawAnswers",answers,method,warnings,physical,psychological,social,environment,overall,zbi,"createdAt","updatedAt" FROM "SurveyResponse" WHERE id='survey'`,
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
     ),
   );
   console.log(

@@ -107,10 +107,7 @@ export async function previewSurveys(
           id: true,
           sourceKey: true,
           contentHash: true,
-<<<<<<< HEAD
           deletedAt: true,
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
           centre: true,
           person: { select: { centre: true } },
         },
@@ -125,12 +122,9 @@ export async function previewSurveys(
   )
     throw new Error("Your centre permissions do not permit this record.");
   const seen = new Map(existing.map((r) => [r.sourceKey, r.contentHash]));
-<<<<<<< HEAD
   const trashed = new Set(
     existing.filter((r) => r.deletedAt).map((r) => r.sourceKey),
   );
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
   return {
     centre: body.centre,
     files: files.map((f) => ({
@@ -140,12 +134,9 @@ export async function previewSurveys(
         const prior = r.sourceKey ? seen.get(r.sourceKey) : undefined;
         const disposition =
           r.exclusion ||
-<<<<<<< HEAD
           (r.sourceKey && trashed.has(r.sourceKey)
             ? "In Trash ? restore the original record"
             : "") ||
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
           (prior
             ? prior === r.contentHash
               ? "Already imported"
@@ -166,15 +157,11 @@ export function importSummary(
     consentExcluded: rows.filter((r) => r.exclusion === "Consent not granted")
       .length,
     testExcluded: rows.filter((r) => r.exclusion === "Test record").length,
-<<<<<<< HEAD
     duplicates: rows.filter(
       (r) =>
         r.disposition === "Already imported" ||
         r.disposition.startsWith("In Trash"),
     ).length,
-=======
-    duplicates: rows.filter((r) => r.disposition === "Already imported").length,
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
     conflicts: rows.filter((r) => r.disposition.startsWith("Source conflict"))
       .length,
     identityReview: rows.filter(

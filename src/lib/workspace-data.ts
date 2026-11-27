@@ -50,10 +50,7 @@ export async function workspaceData(
   const schemes = [
     "settings",
     "surveys",
-<<<<<<< HEAD
     "trash",
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
     "programmes",
     "import",
     "audit",
@@ -67,10 +64,7 @@ export async function workspaceData(
     [
       "settings",
       "surveys",
-<<<<<<< HEAD
       "trash",
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
       "members",
       "care-recipients",
       "programmes",

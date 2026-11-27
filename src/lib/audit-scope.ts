@@ -22,7 +22,6 @@ export async function auditScope(
     surveys,
     surveyBatches,
   ] = await Promise.all([
-<<<<<<< HEAD
     db.person.findMany({ where: personScope(u, true), select: { id: true } }),
     db.programme.findMany({
       where: programmeScope(u, true),
@@ -30,17 +29,10 @@ export async function auditScope(
     }),
     db.grantApplication.findMany({
       where: { person: personScope(u, true) },
-=======
-    db.person.findMany({ where: personScope(u), select: { id: true } }),
-    db.programme.findMany({ where: programmeScope(u), select: { id: true } }),
-    db.grantApplication.findMany({
-      where: { person: personScope(u) },
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
       select: { id: true },
     }),
     db.alert.findMany({ where: alertScope(u), select: { id: true } }),
     db.careRelationship.findMany({
-<<<<<<< HEAD
       where: { member: personScope(u, true), recipient: personScope(u, true) },
       select: { id: true },
     }),
@@ -55,16 +47,6 @@ export async function auditScope(
       where: surveyScope(u, true),
       select: { id: true },
     }),
-=======
-      where: { member: personScope(u), recipient: personScope(u) },
-      select: { id: true },
-    }),
-    db.participation.findMany({
-      where: { person: personScope(u), programme: programmeScope(u) },
-      select: { id: true },
-    }),
-    db.surveyResponse.findMany({ where: surveyScope(u), select: { id: true } }),
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
     db.surveyImportBatch.findMany({
       where: { centre: { in: u.allowedCentres.map((c) => c.centre) } },
       select: { id: true },

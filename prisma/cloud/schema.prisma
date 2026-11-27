@@ -38,12 +38,9 @@ model Session {
  @@index([expiresAt])
 }
 model Person {
-<<<<<<< HEAD
  deletedAt DateTime?
  deletedBy String?
  @@index([deletedAt])
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
  surveyResponses SurveyResponse[]
  verifiedAliases PersonAlias[]
  id String @id @default(cuid())
@@ -455,12 +452,9 @@ model SurveyImportBatch {
  @@index([centre,createdAt])
 }
 model SurveyResponse {
-<<<<<<< HEAD
  deletedAt DateTime?
  deletedBy String?
  @@index([deletedAt])
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
  id String @id @default(cuid())
  batchId String
  batch SurveyImportBatch @relation(fields:[batchId],references:[id])

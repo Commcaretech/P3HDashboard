@@ -1,6 +1,6 @@
 # P3H Dashboard on Vercel and Neon
 
-Use the `codex/p3h-dashboard-completion` branch (`9027b85` as checked locally) for the commands and schema below. The checked-out `main` has unresolved merge markers and lacks the latest cloud migrations. In Vercel, deploy the completion branch or a clean branch containing those changes.
+Use the `codex/p3h-dashboard-completion` branch (`9027b85` as checked locally) for the commands and schema below. That revision contains all 12 cloud migrations represented by the bundled Neon SQL. To use this guide as written, deploy the completion branch or a branch containing those migrations.
 
 ## Vercel project settings
 

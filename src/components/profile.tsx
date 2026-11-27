@@ -10,10 +10,7 @@ import { Table, Badge, PersonLink } from "./ui";
 import { completeness, alertDue } from "@/lib/workflow";
 import { names, Editing } from "./common";
 import { grantDatesFromNotes } from "@/lib/grant-note-dates";
-<<<<<<< HEAD
 import { TrashButton } from "./trash";
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
 export default function Profile({
   d,
   id,
@@ -33,10 +30,7 @@ export default function Profile({
   manager?: boolean;
   revision?: number;
   onEdit: (p: Person) => void;
-<<<<<<< HEAD
   onTrashed?: () => void | Promise<void>;
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
   grant: (
     g?: Grant,
     personId?: string,

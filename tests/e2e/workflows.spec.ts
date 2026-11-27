@@ -2772,7 +2772,6 @@ test("survey correction and manager unlink keep originals, audit and alias histo
   ).toBe(1);
   await fixture.$disconnect();
 });
-<<<<<<< HEAD
 
 test("Trash and Restore work for every main record type without erasing linked history", async ({
   page,
@@ -3046,5 +3045,3 @@ test("Trash and Restore work for every main record type without erasing linked h
   await restricted.close();
   await fixture.$disconnect();
 });
-=======
->>>>>>> 60d3afc9e4413702748b4ab0a3577b1dea7bece4
