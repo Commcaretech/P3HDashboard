@@ -6,6 +6,8 @@ Use the `codex/p3h-dashboard-completion` branch (`9027b85` as checked locally) f
 
 Use the Next.js framework preset, the repository root, Node.js 24.x and the build command `npm run cloud:build`. If you set a custom install command, use `npm ci --include=dev` so the Prisma CLI is available. This generates the PostgreSQL Prisma client. Apply migrations from an operator terminal before deployment. Vercel runs the Next.js server through its platform.
 
+`vercel.json` pins Serverless Functions to `sin1` (Singapore), next to the Neon database: the app makes many sequential database round-trips per imported row, and running the functions in the US (`iad1`) against a Singapore database made a 291-row import fail. On a Hobby plan Vercel ignores the `regions` setting and functions stay in `iad1`; large imports then rely on the import wizard saving rows in batches of 25 (`src/lib/import-chunks.ts`), each in its own transaction, with progress shown and a resume path if a batch fails.
+
 Under **Settings > Environment Variables**, set these on **Production**. For previews use a separate Neon database or a schema-only branch with fictional records.
 
 | Key | Value |

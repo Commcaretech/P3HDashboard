@@ -10,6 +10,8 @@ import { Table, Badge, PersonLink } from "./ui";
 import { completeness, alertDue } from "@/lib/workflow";
 import { names, Editing } from "./common";
 import { grantDatesFromNotes } from "@/lib/grant-note-dates";
+import { lastContactDate } from "@/lib/checkin";
+import { CheckInDialog } from "./checkin-dialog";
 import { TrashButton } from "./trash";
 export default function Profile({
   d,
@@ -45,6 +47,7 @@ export default function Profile({
   ) => Promise<void>;
 }) {
   const [tab, setTab] = useState("Overview");
+  const [checkIn, setCheckIn] = useState(false);
   const p = d.people.find((x) => x.id === id);
   if (!p)
     return (
@@ -55,6 +58,15 @@ export default function Profile({
   const links = [...p.caregiverLinks, ...p.recipientLinks];
   const relatedGrants = d.grants.filter((g) => g.personId === p.id),
     alerts = d.alerts.filter((a) => a.personId === p.id);
+  const lastContact =
+    p.kind === "Member"
+      ? lastContactDate(
+          p,
+          relatedGrants.flatMap((g) =>
+            (g.followUps ?? []).map((h) => h.completedAt),
+          ),
+        )
+      : null;
   const recipients = p.caregiverLinks
     .map((l) => d.people.find((r) => r.id === l.recipientId))
     .filter((r): r is Person => Boolean(r));
@@ -109,6 +121,14 @@ export default function Profile({
             <button className="secondary" onClick={() => alert(p.id)}>
               Set reminder
             </button>
+            {p.kind === "Member" && (
+              <button
+                className="secondary"
+                onClick={() => setCheckIn(true)}
+              >
+                Record check-in
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -251,6 +271,9 @@ export default function Profile({
                   .join(", "),
               ],
               ["P3H onboarding", day(p.onboardingDate)],
+              ...(p.kind === "Member"
+                ? [["Last contacted", day(lastContact)] as [string, string]]
+                : []),
               ["Created", day(p.createdAt)],
               ["Updated", day(p.updatedAt)],
             ].map(([k, v]) => (
@@ -576,6 +599,14 @@ export default function Profile({
             </p>
           ))}
       </section>
+      {checkIn && (
+        <CheckInDialog
+          personId={p.id}
+          personName={label(p)}
+          action={action}
+          onClose={() => setCheckIn(false)}
+        />
+      )}
     </>
   );
 }

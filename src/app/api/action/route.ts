@@ -18,6 +18,7 @@ import { needsReview, registrationReady } from "@/lib/programme-source";
 import { mobilityCompatible } from "@/lib/matching";
 import { calculateFollowUp, closedGrant } from "@/lib/follow-up";
 import { completeFollowUp } from "@/lib/follow-up-service";
+import { completeCheckInAlert, recordCheckIn } from "@/lib/checkin";
 const extraResolutionOpen = (data: Record<string, unknown>) =>
   data.resolution === "Open";
 export async function POST(req: NextRequest) {
@@ -27,6 +28,7 @@ export async function POST(req: NextRequest) {
       .object({
         action: z.enum([
           "completeFollowUp",
+          "recordCheckIn",
           "staffSettings",
           "person",
           "programme",
@@ -61,6 +63,8 @@ export async function POST(req: NextRequest) {
         const mutate = async () => {
           if (b.action === "completeFollowUp")
             return completeFollowUp(tx, u, b.id ?? "", b.data);
+          if (b.action === "recordCheckIn")
+            return recordCheckIn(tx, u, b.id ?? "", b.data);
           if (b.action === "staffSettings") {
             const v = z
               .object({
@@ -451,6 +455,14 @@ export async function POST(req: NextRequest) {
               .object({ status: z.enum(["Completed", "Dismissed", "Pending"]) })
               .parse(b.data);
             const before = await requireAlertAccess(tx, u, b.id ?? "");
+            if (
+              before.type === "Monthly check-in" &&
+              v.status === "Completed" &&
+              before.status !== "Completed"
+            )
+              // Completing the alert records the contact; otherwise the next
+              // reconcile would immediately recreate the same overdue alert.
+              return completeCheckInAlert(tx, u, before);
             if (
               before.grantId &&
               before.type === "Grant review" &&

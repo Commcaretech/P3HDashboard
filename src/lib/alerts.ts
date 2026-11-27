@@ -1,7 +1,16 @@
 import { Prisma } from "@prisma/client";
 import { closedGrant } from "./follow-up";
 import { db } from "./db";
-import { birthday, today } from "./domain";
+import { birthday, parseDate, today } from "./domain";
+import {
+  CHECKIN_TYPE,
+  checkInDueDate,
+  checkInFollowUpKey,
+  checkInSourceKey,
+  checkInTitle,
+  isCheckInDue,
+  lastContactDate,
+} from "./checkin";
 export function birthdayPlans(
   id: string,
   name: string,
@@ -74,6 +83,116 @@ export async function reconcileAlerts(
           ...(current?.autoDismissed
             ? { status: "Pending", autoDismissed: false }
             : {}),
+        },
+      });
+    }
+  }
+  const checkinPeople = await tx.person.findMany({
+    where: {
+      ...(scope ? { id: { in: scope.personIds ?? [] } } : {}),
+      kind: "Member",
+      status: "Active",
+      deletedAt: null,
+    },
+    select: {
+      id: true,
+      name: true,
+      alias: true,
+      memberId: true,
+      assignedId: true,
+      lastContactedAt: true,
+      onboardingDate: true,
+      createdAt: true,
+    },
+  });
+  if (checkinPeople.length) {
+    const followUps = await tx.followUp.findMany({
+      where: {
+        grant: {
+          personId: { in: checkinPeople.map((p) => p.id) },
+          deletedAt: null,
+        },
+      },
+      select: {
+        completedAt: true,
+        grant: { select: { personId: true } },
+      },
+    });
+    const lastFollowUp = new Map<string, string[]>();
+    for (const f of followUps) {
+      const d = parseDate(f.completedAt);
+      if (!d) continue;
+      const list = lastFollowUp.get(f.grant.personId) ?? [];
+      list.push(d);
+      lastFollowUp.set(f.grant.personId, list);
+    }
+    for (const p of checkinPeople) {
+      const last = lastContactDate(p, lastFollowUp.get(p.id) ?? []);
+      if (!isCheckInDue(last, now)) continue;
+      const due = checkInDueDate(last),
+        sourceKey = checkInSourceKey(p.id, due),
+        followUpKey = checkInFollowUpKey(p.id),
+        name = p.name || p.alias || p.memberId || "Person";
+      keys.push(sourceKey);
+      const outstanding =
+        (await tx.alert.findUnique({
+          where: { activeFollowUpKey: followUpKey },
+        })) ??
+        (await tx.alert.findFirst({
+          where: {
+            personId: p.id,
+            type: CHECKIN_TYPE,
+            status: "Pending",
+            sourceKey: { startsWith: "checkin:" },
+          },
+        }));
+      if (outstanding && outstanding.sourceKey !== sourceKey) {
+        const existing = await tx.alert.findUnique({ where: { sourceKey } });
+        if (existing?.status === "Completed") {
+          // A changed due date starts a new active cycle; keep legacy completion intact.
+          await tx.alert.update({
+            where: { id: existing.id },
+            data: {
+              sourceKey: `${sourceKey}:completed:${existing.id}`,
+              activeFollowUpKey: null,
+            },
+          });
+        }
+        if (!existing || existing.status === "Completed")
+          await tx.alert.update({
+            where: { id: outstanding.id },
+            data: { sourceKey, dueDate: new Date(due), snoozedUntil: null },
+          });
+      }
+      const prior = await tx.alert.findUnique({ where: { sourceKey } });
+      await tx.alert.upsert({
+        where: { sourceKey },
+        create: {
+          sourceKey,
+          activeFollowUpKey: followUpKey,
+          title: checkInTitle(name),
+          personId: p.id,
+          type: CHECKIN_TYPE,
+          dueDate: new Date(due),
+          assignedId: p.assignedId,
+          priority: due < now ? "High" : "Normal",
+        },
+        update: {
+          assignedId: p.assignedId,
+          autoDismissed: false,
+          priority: due < now ? "High" : "Normal",
+          personId: p.id,
+          title: checkInTitle(name),
+          activeFollowUpKey:
+            !prior ||
+            prior.status === "Pending" ||
+            (prior.status === "Dismissed" && prior.autoDismissed)
+              ? followUpKey
+              : null,
+          status:
+            prior?.status === "Dismissed" && prior.autoDismissed
+              ? "Pending"
+              : (prior?.status ?? "Pending"),
         },
       });
     }
@@ -195,6 +314,7 @@ export async function reconcileAlerts(
       OR: [
         { sourceKey: { startsWith: "birthday:" } },
         { sourceKey: { startsWith: "grant:" } },
+        { sourceKey: { startsWith: "checkin:" } },
       ],
     },
     data: {
